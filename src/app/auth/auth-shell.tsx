@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import type { ReactNode } from "react";
 import { ArrowLeft } from "lucide-react";
 
@@ -32,17 +31,18 @@ export function AuthShell({
   onBack,
   compact = false,
 }: AuthShellProps) {
+  const logoStyle = { backgroundImage: "url('/icons/icon-512.png')" };
+
   return (
     <main className="min-h-dvh bg-[#F5F5F4] text-[#0A0A0A] lg:grid lg:grid-cols-[42%_58%]">
       <aside className="relative hidden overflow-hidden bg-[#0A0A0A] p-12 text-white lg:flex lg:min-h-dvh lg:flex-col lg:justify-between">
         <div className="absolute inset-0 bg-[repeating-linear-gradient(135deg,rgba(255,194,26,0.05)_0_12px,transparent_12px_28px)]" />
         <div className="relative flex items-center gap-3">
-          <Image
-            src="/uploads/images/logo2.jpg"
-            alt="Wolf Gym"
-            width={48}
-            height={48}
-            className="h-12 w-12 object-contain"
+          <div
+            role="img"
+            aria-label="Wolf Gym"
+            className="h-12 w-12 bg-contain bg-center bg-no-repeat"
+            style={logoStyle}
           />
           <div className="text-2xl font-black uppercase leading-none">
             Wolf <span className="text-[#FFC21A]">Gym</span>
@@ -82,12 +82,11 @@ export function AuthShell({
 
           <div className="border border-[#E7E5E1] bg-white p-6 shadow-sm sm:p-8">
             <div className="mb-7 flex items-center gap-4">
-              <Image
-                src="/uploads/images/logo2.jpg"
-                alt="Wolf Gym"
-                width={42}
-                height={42}
-                className="h-10 w-10 object-contain"
+              <div
+                role="img"
+                aria-label="Wolf Gym"
+                className="h-10 w-10 bg-contain bg-center bg-no-repeat"
+                style={logoStyle}
               />
               <div className="h-9 w-px bg-[#E7E5E1]" />
               <div>

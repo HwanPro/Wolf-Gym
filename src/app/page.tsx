@@ -109,6 +109,26 @@ type GalleryItem = {
   imageUrl: string;
 };
 
+const FALLBACK_GYM_IMAGE = "/icons/icon-512.png";
+
+function GalleryImage({ item }: { item: GalleryItem }) {
+  const backgroundImage = item.imageUrl
+    ? `url("${item.imageUrl}"), url("${FALLBACK_GYM_IMAGE}")`
+    : `url("${FALLBACK_GYM_IMAGE}")`;
+
+  return (
+    <div
+      role="img"
+      aria-label="Imagen de galería"
+      className="aspect-[4/3] w-full bg-[#141414] bg-center bg-no-repeat transition duration-300 group-hover:scale-[1.03]"
+      style={{
+        backgroundImage,
+        backgroundSize: item.imageUrl ? "cover, 42%" : "42%",
+      }}
+    />
+  );
+}
+
 const featureHighlights = [
   {
     title: "Equipos completos",
@@ -236,7 +256,7 @@ export default function WolfGymLanding() {
   const [modalPlan, setModalPlan] = useState<Plan | null>(null);
   const [showEditGalleryModal, setShowEditGalleryModal] = useState(false);
   const [modalGalleryItem, setModalGalleryItem] = useState<GalleryItem | null>(
-    null
+    null,
   );
   const [galleryItems, setGalleryItems] = useState<GalleryItem[]>([]);
 
@@ -244,7 +264,7 @@ export default function WolfGymLanding() {
   const router = useRouter();
   const isAdmin = session?.user?.role === "admin";
   const [membershipPlans, setMembershipPlans] = useState<Plan[]>(
-    DEFAULT_MEMBERSHIP_PLANS
+    DEFAULT_MEMBERSHIP_PLANS,
   );
 
   const fetchPlans = useCallback(async () => {
@@ -254,7 +274,7 @@ export default function WolfGymLanding() {
       setMembershipPlans(
         Array.isArray(data) && data.length > 0
           ? data
-          : DEFAULT_MEMBERSHIP_PLANS
+          : DEFAULT_MEMBERSHIP_PLANS,
       );
     } catch (err) {
       console.error("Error al cargar planes:", err);
@@ -497,7 +517,7 @@ export default function WolfGymLanding() {
           <div className="absolute inset-y-0 right-0 hidden w-1/2 border-l border-[#FFC21A]/10 bg-[#141414] lg:block" />
           <div className="absolute -right-20 top-10 hidden opacity-10 lg:block">
             <Image
-              src="/uploads/images/logo2-SinFondo.png"
+              src="/icons/icon-512.png"
               alt=""
               width={520}
               height={520}
@@ -550,7 +570,9 @@ export default function WolfGymLanding() {
                         : router.push("/client/dashboard")
                     }
                   >
-                    {session.user.role === "admin" ? "Panel Admin" : "Mi Perfil"}
+                    {session.user.role === "admin"
+                      ? "Panel Admin"
+                      : "Mi Perfil"}
                   </Button>
                 ) : (
                   <Button
@@ -566,11 +588,15 @@ export default function WolfGymLanding() {
               <div className="mt-10 grid max-w-2xl grid-cols-3 border-y border-[#FFC21A]/20 py-5">
                 <div>
                   <p className="text-3xl font-black text-[#FFC21A]">6AM</p>
-                  <p className="mt-1 text-xs uppercase text-white/50">Apertura</p>
+                  <p className="mt-1 text-xs uppercase text-white/50">
+                    Apertura
+                  </p>
                 </div>
                 <div className="border-x border-[#FFC21A]/20 px-5">
                   <p className="text-3xl font-black text-white">622</p>
-                  <p className="mt-1 text-xs uppercase text-white/50">Av. Peru</p>
+                  <p className="mt-1 text-xs uppercase text-white/50">
+                    Av. Peru
+                  </p>
                 </div>
                 <div className="pl-5">
                   <p className="text-3xl font-black text-[#FF7A1A]">Ica</p>
@@ -739,7 +765,7 @@ export default function WolfGymLanding() {
                     e.preventDefault();
                     const form = e.currentTarget;
                     const fileInput = form.elements.namedItem(
-                      "file"
+                      "file",
                     ) as HTMLInputElement;
                     if (!fileInput?.files?.[0]) return;
 
@@ -785,13 +811,7 @@ export default function WolfGymLanding() {
                   key={item.id}
                   className="group relative overflow-hidden border border-[#0A0A0A]/10 bg-white"
                 >
-                  <Image
-                    src={item.imageUrl}
-                    alt="Imagen de galería"
-                    width={520}
-                    height={390}
-                    className="aspect-[4/3] w-full object-cover transition duration-300 group-hover:scale-[1.03]"
-                  />
+                  <GalleryImage item={item} />
                   {isAdmin && (
                     <div className="absolute inset-0 flex items-center justify-center bg-[#0A0A0A]/60 opacity-0 transition-opacity group-hover:opacity-100">
                       <Button
@@ -809,7 +829,10 @@ export default function WolfGymLanding() {
         </section>
       </main>
 
-      <footer className="bg-[#0A0A0A] px-5 py-10 text-white sm:px-8 lg:px-12" role="contentinfo">
+      <footer
+        className="bg-[#0A0A0A] px-5 py-10 text-white sm:px-8 lg:px-12"
+        role="contentinfo"
+      >
         <div className="mx-auto max-w-7xl">
           <div className="flex flex-wrap items-center justify-center gap-8 md:justify-between">
             <div className="w-full md:w-1/3 mb-6 md:mb-0 text-center md:text-left">
@@ -817,15 +840,16 @@ export default function WolfGymLanding() {
                 Wolf Gym Ica
               </h3>
               <p className="text-sm text-white/65">
-                El mejor gimnasio de Ica. Transformando vidas, un entrenamiento a la vez.
+                El mejor gimnasio de Ica. Transformando vidas, un entrenamiento
+                a la vez.
               </p>
               <p className="mt-2 text-sm text-white/65">
                 <strong>Horarios:</strong> L-V 6AM-9PM | Sáb 6AM-8PM
               </p>
             </div>
             <div className="flex space-x-6 mb-4 md:mb-0">
-              <a 
-                href="https://www.facebook.com/wolfgym" 
+              <a
+                href="https://www.facebook.com/wolfgym"
                 className="text-2xl text-white hover:text-[#FFC21A]"
                 aria-label="Síguenos en Facebook"
                 target="_blank"
@@ -833,8 +857,8 @@ export default function WolfGymLanding() {
               >
                 <FaFacebook />
               </a>
-              <a 
-                href="https://www.instagram.com/wolfgym" 
+              <a
+                href="https://www.instagram.com/wolfgym"
                 className="text-2xl text-white hover:text-[#FFC21A]"
                 aria-label="Síguenos en Instagram"
                 target="_blank"
@@ -842,8 +866,8 @@ export default function WolfGymLanding() {
               >
                 <FaInstagram />
               </a>
-              <a 
-                href="https://twitter.com/wolfgym" 
+              <a
+                href="https://twitter.com/wolfgym"
                 className="text-2xl text-white hover:text-[#FFC21A]"
                 aria-label="Síguenos en Twitter"
                 target="_blank"
@@ -853,7 +877,9 @@ export default function WolfGymLanding() {
               </a>
             </div>
             <div className="w-full md:w-1/3 text-center md:text-right">
-              <h4 className="mb-2 text-lg font-black uppercase">Visítanos en Ica</h4>
+              <h4 className="mb-2 text-lg font-black uppercase">
+                Visítanos en Ica
+              </h4>
               <address className="mb-2 text-sm not-italic text-white/65">
                 Av. Peru 622, Ica 11003, Perú
               </address>
@@ -874,7 +900,8 @@ export default function WolfGymLanding() {
           </div>
           <div className="mt-8 border-t border-[#FFC21A]/20 pt-8 text-center">
             <p className="text-sm text-white/55">
-              © 2024 Wolf Gym Ica. Todos los derechos reservados. Gimnasio en Ica, Perú
+              © 2024 Wolf Gym Ica. Todos los derechos reservados. Gimnasio en
+              Ica, Perú
             </p>
           </div>
         </div>

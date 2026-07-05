@@ -15,6 +15,7 @@ type RegisterData = {
   firstname: string;
   username: string;
   lastname: string;
+  email?: string;
   password: string;
   confirmPassword: string;
   phone: string;
@@ -47,6 +48,7 @@ function RegisterPage() {
           firstname: data.firstname,
           username: data.username,
           lastname: data.lastname,
+          email: data.email,
           password: data.password,
           phone: data.phone,
           emergencyPhone: data.emergencyPhone,
@@ -76,10 +78,10 @@ function RegisterPage() {
     <AuthShell
       eyebrow="Nueva cuenta"
       title="Crear cuenta"
-      description="Regístrate para administrar tu acceso, tus datos y tu historial en Wolf Gym."
+      description="Regístrate para administrar tu acceso, tus datos y tu historial. Puedes agregar un email para activar recuperación segura."
       onBack={() => router.push("/")}
     >
-      <form onSubmit={onSubmit} className="space-y-4">
+      <form method="post" onSubmit={onSubmit} className="space-y-4">
         {error && (
           <p className="border border-[#E5484D]/30 bg-[#E5484D]/10 px-3 py-2 text-sm font-semibold text-[#B42318]">
             {error}
@@ -119,12 +121,33 @@ function RegisterPage() {
           />
         </AuthField>
 
+        <AuthField label="Email de recuperación" error={errors.email?.message}>
+          <input
+            type="email"
+            placeholder="correo@ejemplo.com"
+            autoComplete="email"
+            {...register("email", {
+              pattern: {
+                value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+                message: "Ingresa un email válido",
+              },
+            })}
+            className={wolfInputClass}
+          />
+        </AuthField>
+
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <AuthField label="Teléfono" error={errors.phone?.message}>
             <input
               type="tel"
               placeholder="987654321"
-              {...register("phone", { required: "Teléfono obligatorio" })}
+              {...register("phone", {
+                required: "Teléfono obligatorio",
+                minLength: {
+                  value: 6,
+                  message: "Ingresa un teléfono válido",
+                },
+              })}
               className={wolfInputClass}
             />
           </AuthField>
@@ -147,6 +170,10 @@ function RegisterPage() {
                 placeholder="Contraseña"
                 {...register("password", {
                   required: "Contraseña obligatoria",
+                  minLength: {
+                    value: 8,
+                    message: "Mínimo 8 caracteres",
+                  },
                 })}
                 className={`${wolfInputClass} pr-11`}
               />

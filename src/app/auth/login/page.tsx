@@ -4,7 +4,7 @@ import { useForm, SubmitHandler } from "react-hook-form";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
-import { ArrowRight, Eye, EyeOff } from "lucide-react";
+import { ArrowLeft, ArrowRight, Eye, EyeOff } from "lucide-react";
 import { useSession } from "next-auth/react";
 
 type FormData = {
@@ -49,8 +49,39 @@ export default function AuthPage() {
 
   return (
     <>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&display=swap');`}</style>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&display=swap');
+        @media (max-width: 767px) {
+          .login-shell {
+            min-height: 100dvh !important;
+            background: #F5F5F4 !important;
+          }
+          .login-aside {
+            display: none !important;
+          }
+          .login-main {
+            flex: none !important;
+            width: 100% !important;
+            min-height: 100dvh !important;
+            align-items: flex-start !important;
+            padding: 72px 20px 32px !important;
+          }
+          .login-panel {
+            max-width: 380px !important;
+            margin: 0 auto !important;
+          }
+          .login-back {
+            margin: 0 auto 28px !important;
+            max-width: 380px !important;
+          }
+          .login-title {
+            font-size: 44px !important;
+            margin-bottom: 28px !important;
+          }
+        }
+      `}</style>
       <div
+        className="login-shell"
         style={{
           display: "flex",
           minHeight: "100vh",
@@ -59,6 +90,7 @@ export default function AuthPage() {
       >
         {/* Left panel — dark with diagonal stripes */}
         <div
+          className="login-aside"
           style={{
             width: "42%",
             background: "#0A0A0A",
@@ -188,6 +220,7 @@ export default function AuthPage() {
 
         {/* Right panel — light form */}
         <div
+          className="login-main"
           style={{
             flex: 1,
             background: "#F5F5F4",
@@ -197,7 +230,36 @@ export default function AuthPage() {
             padding: "40px 32px",
           }}
         >
-          <div style={{ width: "100%", maxWidth: 420 }}>
+          <div className="login-panel" style={{ width: "100%", maxWidth: 420 }}>
+            <button
+              type="button"
+              className="login-back"
+              onClick={() => router.push("/")}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                marginBottom: 32,
+                background: "none",
+                border: "none",
+                padding: 0,
+                color: "#6B6B68",
+                cursor: "pointer",
+                fontFamily: "'Inter', system-ui, sans-serif",
+                fontSize: 14,
+                fontWeight: 600,
+              }}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.color = "#FF7A1A";
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.color = "#6B6B68";
+              }}
+            >
+              <ArrowLeft style={{ width: 16, height: 16 }} />
+              Volver al inicio
+            </button>
+
             {/* Eyebrow */}
             <p
               style={{
@@ -215,6 +277,7 @@ export default function AuthPage() {
 
             {/* Title */}
             <h1
+              className="login-title"
               style={{
                 fontFamily: "'Bebas Neue', 'Arial Narrow', sans-serif",
                 fontSize: 52,
@@ -227,7 +290,11 @@ export default function AuthPage() {
               INICIA SESIÓN
             </h1>
 
-            <form onSubmit={handleSubmit(handleLogin)} style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+            <form
+              method="post"
+              onSubmit={handleSubmit(handleLogin)}
+              style={{ display: "flex", flexDirection: "column", gap: 20 }}
+            >
               {error && (
                 <div
                   style={{
@@ -265,7 +332,10 @@ export default function AuthPage() {
                   type="text"
                   autoComplete="username"
                   {...register("username", {
-                    required: { value: true, message: "El usuario es obligatorio" },
+                    required: {
+                      value: true,
+                      message: "El usuario es obligatorio",
+                    },
                   })}
                   placeholder="tu_usuario"
                   style={{
@@ -273,7 +343,9 @@ export default function AuthPage() {
                     height: 42,
                     padding: "0 14px",
                     background: "#fff",
-                    border: errors.username ? "1px solid #E5484D" : "1px solid #E7E5E1",
+                    border: errors.username
+                      ? "1px solid #E5484D"
+                      : "1px solid #E7E5E1",
                     borderRadius: 10,
                     color: "#1A1A1A",
                     fontFamily: "'Inter', system-ui, sans-serif",
@@ -311,7 +383,10 @@ export default function AuthPage() {
                     type={showPassword ? "text" : "password"}
                     autoComplete="current-password"
                     {...register("password", {
-                      required: { value: true, message: "Contraseña obligatoria" },
+                      required: {
+                        value: true,
+                        message: "Contraseña obligatoria",
+                      },
                     })}
                     placeholder="********"
                     style={{
@@ -319,7 +394,9 @@ export default function AuthPage() {
                       height: 42,
                       padding: "0 44px 0 14px",
                       background: "#fff",
-                      border: errors.password ? "1px solid #E5484D" : "1px solid #E7E5E1",
+                      border: errors.password
+                        ? "1px solid #E5484D"
+                        : "1px solid #E7E5E1",
                       borderRadius: 10,
                       color: "#1A1A1A",
                       fontFamily: "'Inter', system-ui, sans-serif",
@@ -344,9 +421,15 @@ export default function AuthPage() {
                       padding: 0,
                     }}
                     onClick={() => setShowPassword((prev) => !prev)}
-                    aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+                    aria-label={
+                      showPassword ? "Ocultar contraseña" : "Mostrar contraseña"
+                    }
                   >
-                    {showPassword ? <EyeOff style={{ width: 20, height: 20 }} /> : <Eye style={{ width: 20, height: 20 }} />}
+                    {showPassword ? (
+                      <EyeOff style={{ width: 20, height: 20 }} />
+                    ) : (
+                      <Eye style={{ width: 20, height: 20 }} />
+                    )}
                   </button>
                 </div>
                 {errors.password && (
@@ -397,12 +480,16 @@ export default function AuthPage() {
                   transition: "background 0.15s",
                 }}
                 onMouseEnter={(e) => {
-                  (e.currentTarget as HTMLButtonElement).style.background = "#FF7A1A";
-                  (e.currentTarget as HTMLButtonElement).style.borderColor = "#FF7A1A";
+                  (e.currentTarget as HTMLButtonElement).style.background =
+                    "#FF7A1A";
+                  (e.currentTarget as HTMLButtonElement).style.borderColor =
+                    "#FF7A1A";
                 }}
                 onMouseLeave={(e) => {
-                  (e.currentTarget as HTMLButtonElement).style.background = "#FFC21A";
-                  (e.currentTarget as HTMLButtonElement).style.borderColor = "#FFC21A";
+                  (e.currentTarget as HTMLButtonElement).style.background =
+                    "#FFC21A";
+                  (e.currentTarget as HTMLButtonElement).style.borderColor =
+                    "#FFC21A";
                 }}
               >
                 Iniciar sesión
@@ -410,7 +497,9 @@ export default function AuthPage() {
               </button>
 
               {/* Register link */}
-              <div style={{ textAlign: "center", fontSize: 13, color: "#6B6B68" }}>
+              <div
+                style={{ textAlign: "center", fontSize: 13, color: "#6B6B68" }}
+              >
                 <button
                   onClick={() => router.push("/auth/register")}
                   type="button"
@@ -425,10 +514,12 @@ export default function AuthPage() {
                     transition: "color 0.12s",
                   }}
                   onMouseEnter={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.color = "#FF7A1A";
+                    (e.currentTarget as HTMLButtonElement).style.color =
+                      "#FF7A1A";
                   }}
                   onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.color = "#0A0A0A";
+                    (e.currentTarget as HTMLButtonElement).style.color =
+                      "#0A0A0A";
                   }}
                 >
                   ¿No tienes cuenta? Regístrate

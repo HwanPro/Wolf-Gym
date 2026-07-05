@@ -71,11 +71,14 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
+      { url: "/favicon.ico", sizes: "any", type: "image/x-icon" },
       { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
       { url: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
     ],
-    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
-    shortcut: [iconPath],
+    apple: [
+      { url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
+    ],
+    shortcut: ["/favicon.ico"],
   },
   alternates: { canonical: siteUrl },
   formatDetection: {
@@ -135,7 +138,9 @@ export default function RootLayout({
       <body className="min-h-dvh overflow-x-hidden bg-background font-sans text-foreground antialiased">
         <script
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(localBusinessJsonLd) }}
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify(localBusinessJsonLd),
+          }}
         />
         <Providers>{children}</Providers>
       </body>

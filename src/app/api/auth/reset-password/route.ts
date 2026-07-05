@@ -23,13 +23,13 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const identifier = normalizeIdentifier(
-      body.identifier || body.email || body.username
+      body.identifier || body.email || body.username,
     );
 
     if (!identifier) {
       return NextResponse.json(
         { message: "Ingresa tu usuario o correo electronico" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -62,16 +62,22 @@ export async function POST(request: Request) {
     });
 
     const resetLink = `${getAppBaseUrl()}/auth/reset-password?token=${token}`;
-    const displayName = [user.firstName, user.lastName].filter(Boolean).join(" ");
+    const displayName = [user.firstName, user.lastName]
+      .filter(Boolean)
+      .join(" ");
 
-    await sendPasswordResetEmail(destinationEmail, displayName || user.username, resetLink);
+    await sendPasswordResetEmail(
+      destinationEmail,
+      displayName || user.username,
+      resetLink,
+    );
 
     return NextResponse.json({ message: GENERIC_RESPONSE });
   } catch (error) {
     console.error("Error al enviar correo de recuperacion:", error);
     return NextResponse.json(
       { message: "No se pudo enviar el correo de recuperacion." },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
@@ -84,7 +90,10 @@ async function findUserByIdentifier(identifier: string) {
 
   if (isEmail(identifier)) {
     const verification = await prisma.emailVerification.findFirst({
-      where: { email: { equals: identifier, mode: "insensitive" } },
+      where: {
+        email: { equals: identifier, mode: "insensitive" },
+        verified: true,
+      },
       select: { userId: true },
     });
 
@@ -119,10 +128,12 @@ async function getUserRecoveryEmail(userId: string, username: string) {
 
   const verification = await prisma.emailVerification.findUnique({
     where: { userId },
-    select: { email: true },
+    select: { email: true, verified: true },
   });
 
-  return verification?.email && isEmail(verification.email)
+  return verification?.verified &&
+    verification.email &&
+    isEmail(verification.email)
     ? verification.email
     : null;
 }

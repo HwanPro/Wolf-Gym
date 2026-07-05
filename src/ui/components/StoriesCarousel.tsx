@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Image from "next/image";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 interface Story {
@@ -63,23 +62,28 @@ export default function StoriesCarousel() {
     );
   }
 
+  const currentStory = stories[current];
+  const currentImage = currentStory.imageUrl
+    ? `url("${currentStory.imageUrl}"), url("/icons/icon-512.png")`
+    : `url("/icons/icon-512.png")`;
+
   return (
     <div className="relative mx-auto w-full max-w-3xl overflow-hidden rounded-lg bg-yellow-400 shadow-lg">
-      <div className="relative h-64">
-        <Image
-          src={stories[current].imageUrl}
-          alt={stories[current].title}
-          fill
-          unoptimized // 👈 Esto soluciona el error rápido, quítalo si configuras el dominio
-          className="object-cover"
-        />
-      </div>
+      <div
+        role="img"
+        aria-label={currentStory.title}
+        className="relative h-64 bg-[#141414] bg-center bg-no-repeat"
+        style={{
+          backgroundImage: currentImage,
+          backgroundSize: currentStory.imageUrl ? "cover, 160px" : "160px",
+        }}
+      />
       <div className="p-4 bg-white text-black">
-        <h3 className="font-bold text-lg">{stories[current].title}</h3>
-        <p className="text-sm">{stories[current].content}</p>
-        {stories[current].link && (
+        <h3 className="font-bold text-lg">{currentStory.title}</h3>
+        <p className="text-sm">{currentStory.content}</p>
+        {currentStory.link && (
           <a
-            href={stories[current].link}
+            href={currentStory.link}
             target="_blank"
             rel="noopener noreferrer"
             className="text-yellow-500 underline mt-2 inline-block"
