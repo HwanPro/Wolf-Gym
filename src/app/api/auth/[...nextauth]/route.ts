@@ -3,6 +3,8 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import { PrismaAdapter } from "@next-auth/prisma-adapter";
 import prisma from "@/infrastructure/prisma/prisma";
 import bcrypt from "bcryptjs";
+import speakeasy from "speakeasy";
+import { loginRateLimit } from "@/server/security/rate-limit";
 
 const nextAuthUrl = process.env.NEXTAUTH_URL || "";
 const useSecureCookies = nextAuthUrl.startsWith("https://");
@@ -15,10 +17,22 @@ export const authOptions: AuthOptions = {
       credentials: {
         username: { label: "Username or Phone", type: "text" },
         password: { label: "Password", type: "password" },
+        otp: { label: "Código 2FA", type: "text" },
       },
       async authorize(credentials) {
         if (!credentials?.username || !credentials.password) {
-          throw new Error("Faltan credenciales");
+          throw new Error("Credenciales inválidas");
+        }
+        const loginKey = credentials.username.trim().toLowerCase();
+        const rateLimit = loginRateLimit.consume(
+          loginKey,
+          8,
+          15 * 60 * 1_000,
+        );
+        if (!rateLimit.allowed) {
+          throw new Error(
+            `Demasiados intentos. Intenta nuevamente en ${rateLimit.retryAfterSeconds} segundos`,
+          );
         }
 
         // Buscar al usuario
@@ -32,17 +46,35 @@ export const authOptions: AuthOptions = {
         });
 
         if (!user) {
-          throw new Error("Usuario no encontrado");
+          throw new Error("Credenciales inválidas");
         }
 
         // Comparar contraseña
+        if (!user.password) {
+          throw new Error("Credenciales inválidas");
+        }
         const isMatch = await bcrypt.compare(
           credentials.password,
-          user.password!
+          user.password
         );
         if (!isMatch) {
-          throw new Error("Contraseña incorrecta");
+          throw new Error("Credenciales inválidas");
         }
+
+        if (user.twoFASecret) {
+          const otp = credentials.otp?.trim() || "";
+          const validOtp = /^\d{6}$/.test(otp) && speakeasy.totp.verify({
+            secret: user.twoFASecret,
+            encoding: "base32",
+            token: otp,
+            window: 1,
+          });
+          if (!validOtp) {
+            throw new Error("Código 2FA requerido o inválido");
+          }
+        }
+
+        loginRateLimit.reset(loginKey);
 
         // Regresamos un objeto "limpio" sin user.password
         return {
@@ -123,13 +155,11 @@ export const authOptions: AuthOptions = {
       return session;
     },
     async signIn({ user }) {
-      console.log("🔑 Proceso de inicio de sesión para usuario:", user);
       if (user.role === "client") {
         const existingProfile = await prisma.clientProfile.findUnique({
           where: { user_id: user.id },
         });
         if (!existingProfile) {
-          console.log("👤 Creando perfil de cliente para usuario:", user.id);
           await prisma.clientProfile.create({
             data: {
               profile_first_name:
@@ -145,9 +175,6 @@ export const authOptions: AuthOptions = {
               user_id: user.id,
             },
           });
-          console.log("✅ Perfil de cliente creado.");
-        } else {
-          console.log("👤 Perfil ya existente para:", user.id);
         }
       }
       return true;
@@ -156,7 +183,7 @@ export const authOptions: AuthOptions = {
   pages: {
     signIn: "/auth/login",
   },
-  secret: process.env.NEXTAUTH_SECRET || "supersecret",
+  secret: process.env.NEXTAUTH_SECRET,
   cookies: {
     sessionToken: {
       name: useSecureCookies

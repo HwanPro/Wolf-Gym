@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
+import { requireAdmin } from "@/server/auth/authorization";
+import prisma from "@/infrastructure/prisma/prisma";
 
 const exercisesData = [
   // PECHO
@@ -291,6 +290,9 @@ const exercisesData = [
 ];
 
 export async function POST(req: NextRequest) {
+  const authorization = await requireAdmin(req);
+  if (!authorization.authorized) return authorization.response;
+
   try {
     console.log('🌱 Iniciando seed de ejercicios...');
 

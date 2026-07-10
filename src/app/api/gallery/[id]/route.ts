@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/infrastructure/prisma/prisma";
 import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { v4 as uuidv4 } from "uuid";
+import { requireAdmin } from "@/server/auth/authorization";
+import { safeStorageSegment, validateUploadFile } from "@/server/files/file-validation";
 
 const s3Client = new S3Client({
   region: process.env.AWS_REGION!,
@@ -17,6 +19,9 @@ interface IParams {
 
 // PUT → actualizar imagen en la galería (cambia imagen en S3 y en la BD)
 export async function PUT(request: NextRequest, { params }: IParams) {
+  const authorization = await requireAdmin(request);
+  if (!authorization.authorized) return authorization.response;
+
   try {
     const { id } = params;
     const existing = await prisma.gallery.findUnique({ where: { id } });
@@ -31,8 +36,17 @@ export async function PUT(request: NextRequest, { params }: IParams) {
       return NextResponse.json({ error: "No se envió archivo" }, { status: 400 });
     }
 
+    const validationError = validateUploadFile(file, {
+      allowedTypes: ["image/jpeg", "image/png", "image/webp"],
+      allowedExtensions: [".jpg", ".jpeg", ".png", ".webp"],
+      maxBytes: 5 * 1024 * 1024,
+    });
+    if (validationError) {
+      return NextResponse.json({ error: validationError }, { status: 400 });
+    }
+
     const buffer = Buffer.from(await file.arrayBuffer());
-    const fileKey = `uploads/gallery/${uuidv4()}-${file.name}`;
+    const fileKey = `uploads/gallery/${uuidv4()}-${safeStorageSegment(file.name)}`;
 
     await s3Client.send(new PutObjectCommand({
       Bucket: process.env.AWS_BUCKET_NAME!,
@@ -58,6 +72,9 @@ export async function PUT(request: NextRequest, { params }: IParams) {
 
 // DELETE → eliminar imagen de S3 y de la BD
 export async function DELETE(request: NextRequest, { params }: IParams) {
+  const authorization = await requireAdmin(request);
+  if (!authorization.authorized) return authorization.response;
+
   try {
     const { id } = params;
 

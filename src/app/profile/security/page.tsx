@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { useSession } from "next-auth/react";
 import { Button } from "@/ui/button";
 import { toast } from "react-toastify";
@@ -19,9 +20,54 @@ export default function SecuritySettingsPage() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [verificationMethod, setVerificationMethod] = useState<"code" | "link">("code");
+  const [twoFactorQr, setTwoFactorQr] = useState("");
+  const [twoFactorSecret, setTwoFactorSecret] = useState("");
+  const [twoFactorCode, setTwoFactorCode] = useState("");
+  const [isConfiguringTwoFactor, setIsConfiguringTwoFactor] = useState(false);
 
   const currentUsername = session?.user?.name || "";
   const isEmailUsername = currentUsername.includes("@");
+
+  const startTwoFactorSetup = async () => {
+    setIsConfiguringTwoFactor(true);
+    try {
+      const response = await fetch("/api/auth/2FA", { method: "POST" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "No se pudo iniciar 2FA");
+      setTwoFactorQr(data.qrCode);
+      setTwoFactorSecret(data.secret);
+      setTwoFactorCode("");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo iniciar 2FA");
+    } finally {
+      setIsConfiguringTwoFactor(false);
+    }
+  };
+
+  const confirmTwoFactorSetup = async () => {
+    if (!/^\d{6}$/.test(twoFactorCode)) {
+      toast.error("Ingresa el código de seis dígitos");
+      return;
+    }
+    setIsConfiguringTwoFactor(true);
+    try {
+      const response = await fetch("/api/auth/2FA", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ secret: twoFactorSecret, token: twoFactorCode }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Código inválido");
+      toast.success(data.message || "2FA habilitado correctamente");
+      setTwoFactorQr("");
+      setTwoFactorSecret("");
+      setTwoFactorCode("");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo habilitar 2FA");
+    } finally {
+      setIsConfiguringTwoFactor(false);
+    }
+  };
 
   const changePassword = async () => {
     if (!currentPassword || !newPassword || !confirmPassword) {
@@ -228,6 +274,77 @@ export default function SecuritySettingsPage() {
                 </Button>
               </div>
             </div>
+          </div>
+
+          <div className="mb-8 rounded-lg border p-4">
+            <div className="mb-4 flex items-center">
+              <Shield className="mr-2 h-5 w-5 text-yellow-600" />
+              <h2 className="text-lg font-semibold">Autenticación en dos pasos</h2>
+            </div>
+            <p className="mb-4 text-sm text-gray-600">
+              Protege tu cuenta con una app compatible con códigos TOTP, como Google Authenticator o Authy.
+            </p>
+
+            {!twoFactorQr ? (
+              <Button
+                type="button"
+                onClick={startTwoFactorSetup}
+                disabled={isConfiguringTwoFactor}
+                className="w-full bg-yellow-500 text-black hover:bg-yellow-600 sm:w-auto"
+              >
+                {isConfiguringTwoFactor ? "Preparando..." : "Configurar 2FA"}
+              </Button>
+            ) : (
+              <div className="grid gap-5 sm:grid-cols-[180px_1fr] sm:items-center">
+                <Image
+                  src={twoFactorQr}
+                  alt="Código QR para configurar 2FA"
+                  width={180}
+                  height={180}
+                  unoptimized
+                  className="mx-auto rounded-md border bg-white p-2"
+                />
+                <div className="space-y-3">
+                  <p className="break-all text-xs text-gray-600">
+                    Clave manual: <strong>{twoFactorSecret}</strong>
+                  </p>
+                  <label className="block text-sm font-medium text-gray-700" htmlFor="two-factor-code">
+                    Código de verificación
+                  </label>
+                  <input
+                    id="two-factor-code"
+                    value={twoFactorCode}
+                    onChange={(event) => setTwoFactorCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                    placeholder="123456"
+                  />
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Button
+                      type="button"
+                      onClick={confirmTwoFactorSetup}
+                      disabled={isConfiguringTwoFactor}
+                      className="bg-yellow-500 text-black hover:bg-yellow-600"
+                    >
+                      {isConfiguringTwoFactor ? "Verificando..." : "Confirmar 2FA"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        setTwoFactorQr("");
+                        setTwoFactorSecret("");
+                        setTwoFactorCode("");
+                      }}
+                      disabled={isConfiguringTwoFactor}
+                    >
+                      Cancelar
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {!isEmailUsername && (

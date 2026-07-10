@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 
+import { getLimaDayRange } from "@/domain/attendance/attendance-policy";
+import { buildSaleQuote } from "@/domain/sales/sale-policy";
 import prisma from "@/infrastructure/prisma/prisma";
 
 type DispatchItemInput = {
@@ -9,12 +11,8 @@ type DispatchItemInput = {
 };
 
 function startAndEndOfToday() {
-  const now = new Date();
-  const startOfDay = new Date(now);
-  startOfDay.setHours(0, 0, 0, 0);
-  const endOfDay = new Date(now);
-  endOfDay.setHours(23, 59, 59, 999);
-  return { startOfDay, endOfDay };
+  const { start, end } = getLimaDayRange();
+  return { startOfDay: start, endOfDay: end };
 }
 
 export async function GET(request: NextRequest) {
@@ -135,13 +133,6 @@ export async function POST(request: NextRequest) {
           row.quantity > 0
       );
 
-    if (items.length === 0) {
-      return NextResponse.json(
-        { error: "Los items de venta son inválidos" },
-        { status: 400 }
-      );
-    }
-
     const productIds = [...new Set(items.map((i) => i.productId))];
     const products = await prisma.inventoryItem.findMany({
       where: { item_id: { in: productIds } },
@@ -153,80 +144,59 @@ export async function POST(request: NextRequest) {
         item_stock: true,
       },
     });
-    const productMap = new Map(products.map((p) => [p.item_id, p]));
+    const quote = buildSaleQuote(
+      products.map((product) => ({
+        id: product.item_id,
+        name: product.item_name,
+        price: product.item_price,
+        discountPercent: product.item_discount,
+        stock: product.item_stock,
+      })),
+      items,
+    );
 
-    const grouped = new Map<string, number>();
-    for (const item of items) {
-      grouped.set(item.productId, (grouped.get(item.productId) ?? 0) + item.quantity);
-    }
-
-    const issues: string[] = [];
-    for (const [productId, qty] of grouped.entries()) {
-      const product = productMap.get(productId);
-      if (!product) {
-        issues.push(`Producto no encontrado: ${productId}`);
-        continue;
-      }
-      if (product.item_stock < qty) {
-        issues.push(
-          `${product.item_name}: stock insuficiente (stock ${product.item_stock}, solicitado ${qty})`
-        );
-      }
-    }
-
-    if (issues.length > 0) {
+    if (!quote.ok) {
       return NextResponse.json(
-        { error: "No se pudo despachar la venta", details: issues },
+        { error: "No se pudo despachar la venta", details: quote.issues },
         { status: 400 }
       );
     }
 
     const result = await prisma.$transaction(async (tx) => {
-      let grandTotal = 0;
-      let totalItems = 0;
-      let rows = 0;
-
-      for (const item of items) {
-        const product = productMap.get(item.productId);
-        if (!product) {
-          continue;
-        }
-
-        const discountPct = product.item_discount ?? 0;
-        const unitPrice = product.item_price * (1 - discountPct / 100);
-        const lineTotal = unitPrice * item.quantity;
-
-        await tx.inventoryItem.update({
-          where: { item_id: item.productId },
+      for (const line of quote.lines) {
+        const stockUpdate = await tx.inventoryItem.updateMany({
+          where: {
+            item_id: line.productId,
+            item_stock: { gte: line.quantity },
+          },
           data: {
             item_stock: {
-              decrement: item.quantity,
+              decrement: line.quantity,
             },
           },
         });
+        if (stockUpdate.count !== 1) {
+          throw new Error(`STOCK_CHANGED:${line.productName}`);
+        }
 
         await tx.purchase.create({
           data: {
-            purchase_quantity: item.quantity,
-            purchase_total: Number(lineTotal.toFixed(2)),
+            purchase_quantity: line.quantity,
+            purchase_total: line.lineTotal,
             customer: {
               connect: { id: token.id as string },
             },
             product: {
-              connect: { item_id: item.productId },
+              connect: { item_id: line.productId },
             },
           },
         });
-
-        grandTotal += lineTotal;
-        totalItems += item.quantity;
-        rows += 1;
       }
 
       return {
-        rows,
-        totalItems,
-        grandTotal: Number(grandTotal.toFixed(2)),
+        rows: quote.lines.length,
+        totalItems: quote.totalItems,
+        grandTotal: quote.grandTotal,
       };
     });
 
@@ -237,6 +207,15 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("Error despachando venta en caja diaria:", error);
+    if (error instanceof Error && error.message.startsWith("STOCK_CHANGED:")) {
+      return NextResponse.json(
+        {
+          error: "El stock cambió mientras se procesaba la venta",
+          details: [error.message.slice("STOCK_CHANGED:".length)],
+        },
+        { status: 409 },
+      );
+    }
     return NextResponse.json(
       { error: "Error interno del servidor" },
       { status: 500 }

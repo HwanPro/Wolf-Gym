@@ -1,13 +1,17 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/infrastructure/prisma/prisma";
+import { getLimaDayRange } from "@/domain/attendance/attendance-policy";
+import { requireAdmin } from "@/server/auth/authorization";
 
 export const dynamic = "force-dynamic";
 
 // POST: cierra abiertas del día
-export async function POST() {
+export async function POST(request: NextRequest) {
+  const authorization = await requireAdmin(request);
+  if (!authorization.authorized) return authorization.response;
+
   try {
-    const start = new Date(); start.setHours(0,0,0,0);
-    const end = new Date();   end.setHours(23,59,59,999);
+    const { start, end } = getLimaDayRange();
 
     const opened = await prisma.attendance.findMany({
       where: { checkInTime: { gte: start, lte: end }, checkOutTime: null },
@@ -22,7 +26,7 @@ export async function POST() {
     }
 
     return NextResponse.json({ ok: true, closed });
-  } catch (e) {
+  } catch {
     return NextResponse.json({ ok: false, message: "falló autocierre" }, { status: 500 });
   }
 }

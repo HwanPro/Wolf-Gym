@@ -1,8 +1,12 @@
 // src/app/api/test-checkin/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/infrastructure/prisma/prisma";
+import { requireAdmin } from "@/server/auth/authorization";
 
 export async function POST(request: NextRequest) {
+  const authorization = await requireAdmin(request);
+  if (!authorization.authorized) return authorization.response;
+
   try {
     const { userId } = await request.json();
 

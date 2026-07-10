@@ -13,6 +13,8 @@ dist/
 
 # Tests/build/coverage
 coverage/
+playwright-report/
+test-results/
 *.log
 *.tsbuildinfo
 

@@ -56,4 +56,17 @@ describe("sale policy", () => {
       ),
     ).toMatchObject({ ok: true, grandTotal: 1.01 });
   });
+
+  it("rejects an empty sale and corrupt product data", () => {
+    expect(buildSaleQuote(products, [])).toEqual({
+      ok: false,
+      issues: ["Debe enviar al menos un producto"],
+    });
+    expect(
+      buildSaleQuote(
+        [{ id: "bad", name: "Bad", price: -1, stock: -1 }],
+        [{ productId: "bad", quantity: 1 }],
+      ),
+    ).toMatchObject({ ok: false });
+  });
 });

@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
+import { requireAdmin } from "@/server/auth/authorization";
+import prisma from "@/infrastructure/prisma/prisma";
 
 export async function GET(req: NextRequest) {
+  const authorization = await requireAdmin(req);
+  if (!authorization.authorized) return authorization.response;
+
   try {
     console.log("🔍 Testing exercises API...");
     

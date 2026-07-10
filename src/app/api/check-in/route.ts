@@ -1,43 +1,16 @@
 // src/app/api/check-in/route.ts
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import prisma from "@/infrastructure/prisma/prisma";
 import { autoCloseExpiredAttendances } from "@/lib/attendanceAutoClose";
 import { broadcastToRoom } from "@/lib/stream-manager";
+import {
+  getLimaDayRange,
+  getMembershipStatus,
+  isGymOpen,
+} from "@/domain/attendance/attendance-policy";
 export const dynamic = "force-dynamic";
 
 /* ================= Utils ================= */
-function limaNow() {
-  // Si más adelante quieres forzar TZ, adapta aquí
-  return new Date();
-}
-function todayRangeLima() {
-  const now = limaNow();
-  const start = new Date(now);
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(now);
-  end.setHours(23, 59, 59, 999);
-  return { start, end };
-}
-function calcDaysLeft(endDate?: Date | null) {
-  if (!endDate) return null;
-  const today = new Date();
-  const floorToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const diff = endDate.getTime() - floorToday.getTime();
-  const ONE_DAY = 24 * 60 * 60 * 1000;
-  return Math.max(0, Math.ceil(diff / ONE_DAY));
-}
-function isMembershipExpired(endDate?: Date | null) {
-  if (!endDate) return false;
-  const today = new Date();
-  const floorToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  return endDate.getTime() < floorToday.getTime();
-}
-function only9Digits(pePhoneLike: string) {
-  const d = String(pePhoneLike || "").replace(/\D/g, "");
-  // devolver últimos 9 para casos con +51
-  return d.slice(-9);
-}
-
 function normalizeIdentifier(value: string) {
   return String(value || "").replace(/\D/g, "");
 }
@@ -91,10 +64,14 @@ const MAX_ENTRIES_PER_DAY = 2;   // cantidad máxima de entradas por día
 
 type AttendanceIntent = "checkin" | "checkout";
 
-async function closeIfOpenOrCreate(userId: string, intent: AttendanceIntent) {
-  await autoCloseExpiredAttendances();
+async function closeIfOpenOrCreate(
+  userId: string,
+  intent: AttendanceIntent,
+  now = new Date(),
+) {
+  await autoCloseExpiredAttendances(now);
 
-  const { start, end } = todayRangeLima();
+  const { start, end } = getLimaDayRange(now);
 
   const profile = await prisma.clientProfile.findUnique({
     where: { user_id: userId },
@@ -104,7 +81,16 @@ async function closeIfOpenOrCreate(userId: string, intent: AttendanceIntent) {
     },
   });
 
-  if (intent === "checkin" && isMembershipExpired(profile?.profile_end_date)) {
+  if (intent === "checkin" && !isGymOpen(now)) {
+    return {
+      ok: false as const,
+      reason: "gym_closed" as const,
+      message: "El gimnasio está cerrado en este horario",
+    };
+  }
+
+  const membership = getMembershipStatus(profile?.profile_end_date, now);
+  if (intent === "checkin" && membership.expired) {
     return {
       ok: false as const,
       reason: "membership_expired" as const,
@@ -118,7 +104,7 @@ async function closeIfOpenOrCreate(userId: string, intent: AttendanceIntent) {
   const rebound = await prisma.attendance.findFirst({
     where: {
       userId,
-      checkInTime: { gte: new Date(Date.now() - REBOUND_SECONDS * 1000) },
+      checkInTime: { gte: new Date(now.getTime() - REBOUND_SECONDS * 1000) },
     },
     orderBy: { checkInTime: "desc" },
   });
@@ -143,7 +129,7 @@ async function closeIfOpenOrCreate(userId: string, intent: AttendanceIntent) {
     }
 
     // Cerrar (checkout)
-    const salida = limaNow();
+    const salida = now;
     const durationMins = Math.max(
       0,
       Math.round((salida.getTime() - new Date(open.checkInTime).getTime()) / 60000)
@@ -177,13 +163,13 @@ async function closeIfOpenOrCreate(userId: string, intent: AttendanceIntent) {
 
   // Crear (checkin)
   const created = await prisma.attendance.create({
-    data: { userId, checkInTime: limaNow() },
+    data: { userId, checkInTime: now },
   });
   return { ok: true as const, type: "checkin" as const, record: created };
 }
 
 /* ============= Perfil / datos a mostrar ============= */
-async function getProfileInfo(userId: string) {
+async function getProfileInfo(userId: string, now = new Date()) {
   // User (por si tienes avatar u otros)
   const user = await prisma.user.findUnique({
     where: { id: userId },
@@ -218,24 +204,17 @@ async function getProfileInfo(userId: string) {
       ? Number(profile.debt)
       : 0;
 
-  // Debug: Log para verificar la deuda mensual
-  console.log(`Debug - Usuario: ${fullName}, Deuda mensual raw:`, profile?.debt, 'Procesada:', monthlyDebt);
-
   // Obtener deudas diarias
   let dailyDebt = 0;
   if (profile?.profile_id) {
-    try {
-      const dailyDebts = await (prisma as any).dailyDebt.findMany({
-        where: { clientProfileId: profile.profile_id },
-      });
-      dailyDebt = dailyDebts.reduce((sum: number, debt: any) => sum + Number(debt.amount), 0);
-    } catch (error) {
-      // Si el modelo no existe aún, usar 0
-      dailyDebt = 0;
-    }
+    const debts = await prisma.dailyDebt.aggregate({
+      where: { clientProfileId: profile.profile_id },
+      _sum: { amount: true },
+    });
+    dailyDebt = Number(debts._sum.amount ?? 0);
   }
 
-  const daysLeft = calcDaysLeft(profile?.profile_end_date);
+  const membership = getMembershipStatus(profile?.profile_end_date, now);
 
   return {
     fullName,
@@ -245,8 +224,8 @@ async function getProfileInfo(userId: string) {
     monthlyDebt,
     dailyDebt,
     totalDebt: monthlyDebt + dailyDebt,
-    daysLeft,
-    membershipExpired: isMembershipExpired(profile?.profile_end_date),
+    daysLeft: membership.daysLeft,
+    membershipExpired: membership.expired,
     avatarUrl: user?.image ?? null,
     profileId: profile?.profile_id ?? null,
   };
@@ -255,10 +234,12 @@ async function getProfileInfo(userId: string) {
 /* ==================== Handler ==================== */
 export async function POST(req: Request) {
   try {
-    const body = await req.json().catch(() => ({} as any));
-    const userId: string | undefined = body?.userId;
-    const identifierRaw: string | undefined = body?.identifier ?? body?.dni ?? body?.document ?? body?.phone;
-    const intent: AttendanceIntent = body?.intent === "checkout" ? "checkout" : "checkin";
+    const body: unknown = await req.json().catch(() => ({}));
+    const input = body && typeof body === "object" ? body as Record<string, unknown> : {};
+    const userId = typeof input.userId === "string" ? input.userId : undefined;
+    const rawIdentifier = input.identifier ?? input.dni ?? input.document ?? input.phone;
+    const identifierRaw = typeof rawIdentifier === "string" ? rawIdentifier : undefined;
+    const intent: AttendanceIntent = input.intent === "checkout" ? "checkout" : "checkin";
 
     // ---- HUELLAS (userId) ----
     if (userId) {
@@ -317,8 +298,11 @@ export async function POST(req: Request) {
             : res.type === "rebote"
               ? "Registro ya tomado"
               : "Entrada registrada",
-        record: (res as any).record ?? null,
-        minutesOpen: res.type === "checkout" ? (res as any).record?.durationMins : undefined,
+        record: "record" in res ? res.record ?? null : null,
+        minutesOpen:
+          res.type === "checkout" && "record" in res
+            ? res.record?.durationMins
+            : undefined,
       };
 
       // Broadcast a todas las salas (o puedes usar una sala específica)
@@ -396,8 +380,11 @@ export async function POST(req: Request) {
             : res.type === "rebote"
               ? "Registro ya tomado"
               : "Entrada registrada",
-        record: (res as any).record ?? null,
-        minutesOpen: res.type === "checkout" ? (res as any).record?.durationMins : undefined,
+        record: "record" in res ? res.record ?? null : null,
+        minutesOpen:
+          res.type === "checkout" && "record" in res
+            ? res.record?.durationMins
+            : undefined,
       };
 
       // Broadcast a todas las salas
@@ -412,10 +399,10 @@ export async function POST(req: Request) {
       { ok: false, message: "Se requiere 'userId', 'phone' o 'dni'" },
       { status: 400 }
     );
-  } catch (e: any) {
-    console.error("check-in error:", e);
+  } catch (error: unknown) {
+    console.error("check-in error:", error);
     return NextResponse.json(
-      { ok: false, message: e?.message || "Error interno" },
+      { ok: false, message: "Error interno del servidor" },
       { status: 500 }
     );
   }

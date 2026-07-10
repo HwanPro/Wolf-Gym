@@ -91,6 +91,11 @@ Flujo esperado:
 npm run dev
 npm run dev:clean
 npm run build
+npm run typecheck
+npm test
+npm run test:coverage
+npm run test:e2e
+npm run db:migrate:deploy
 npm run start
 npm run lint
 npm run cleanup:daily
@@ -98,6 +103,21 @@ npm run cleanup:weekly
 npm run cleanup:both
 npm run seed:complete
 ```
+
+`npm run build` no aplica migraciones ni modifica la base de datos. El despliegue
+de migraciones es una operación explícita mediante `npm run db:migrate:deploy`.
+
+## Reglas verificadas
+
+- Todos los cálculos diarios de asistencia y caja usan `America/Lima`.
+- Horario: lunes a viernes 06:00-21:00, sábados 06:00-20:00 y domingos cerrado.
+- La fecha final de membresía permanece válida hasta terminar ese día en Lima.
+- Máximo de dos entradas diarias y antirrebote de 60 segundos.
+- Ventas y compras agrupan productos repetidos, validan stock y evitan stock negativo con una actualización transaccional condicional.
+- Las mutaciones administrativas comprueban sesión y rol dentro de cada Route Handler; el middleware no es la única barrera.
+- Las cargas validan autenticación, MIME, extensión, tamaño y claves seguras de almacenamiento.
+
+Las reglas detalladas y sus criterios de respuesta están en `docs/business-rules.md`.
 
 ## Solucion rapida de fallas comunes
 - Pantalla en blanco o 500 en admin durante desarrollo: `npm run dev:clean`.

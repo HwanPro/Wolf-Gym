@@ -1,5 +1,6 @@
 // app/api/biometric/verify/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import { requireAdmin } from "@/server/auth/authorization";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,9 @@ export async function POST(
   req: NextRequest,
   ctx: { params: Promise<{ id: string }> }
 ) {
+  const authorization = await requireAdmin(req);
+  if (!authorization.authorized) return authorization.response;
+
   try {
     const { id: userId } = await ctx.params;
     const body = await req.json().catch(() => ({}));

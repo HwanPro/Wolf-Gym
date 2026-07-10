@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/infrastructure/prisma/prisma";
 import { z, ZodError } from "zod";
+import { requireAdmin } from "@/server/auth/authorization";
 
 const storySchema = z.object({
   title: z.string().min(1, { message: "El título es obligatorio" }),
@@ -24,6 +25,9 @@ export async function GET() {
 
 // POST
 export async function POST(request: NextRequest) {
+  const authorization = await requireAdmin(request);
+  if (!authorization.authorized) return authorization.response;
+
   try {
     const body = await request.json();
     const validatedData = storySchema.parse(body);
@@ -53,15 +57,19 @@ export async function POST(request: NextRequest) {
 
 // PUT
 export async function PUT(request: NextRequest) {
+  const authorization = await requireAdmin(request);
+  if (!authorization.authorized) return authorization.response;
+
   try {
     const body = await request.json();
     const { id, ...data } = body;
     if (!id) {
       return NextResponse.json({ error: "ID requerido" }, { status: 400 });
     }
+    const validatedData = storySchema.partial().parse(data);
     const updatedStory = await prisma.story.update({
       where: { id },
-      data,
+      data: validatedData,
     });
     return NextResponse.json(updatedStory, { status: 200 });
   } catch (error) {
@@ -75,6 +83,9 @@ export async function PUT(request: NextRequest) {
 
 // DELETE
 export async function DELETE(request: NextRequest) {
+  const authorization = await requireAdmin(request);
+  if (!authorization.authorized) return authorization.response;
+
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");

@@ -2,6 +2,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/infrastructure/prisma/prisma";
+import { buildSaleQuote } from "@/domain/sales/sale-policy";
+import { authorizeRequest } from "@/server/auth/authorization";
 
 const DEFAULT_PRODUCT_IMAGE = "/uploads/images/logo2.jpg";
 
@@ -44,11 +46,15 @@ export async function GET(req: NextRequest) {
 
 // POST - Procesar una compra
 export async function POST(req: NextRequest) {
+  const authorization = await authorizeRequest(req, ["client", "admin"]);
+  if (!authorization.authorized) return authorization.response;
+
   try {
     const body = await req.json();
-    const { productId, quantity, customerId } = body;
+    const productId = String(body?.productId || "").trim();
+    const quantity = Number(body?.quantity);
 
-    if (!productId || !quantity || !customerId) {
+    if (!productId || !Number.isInteger(quantity) || quantity <= 0) {
       return NextResponse.json(
         { error: "Faltan datos para procesar la compra" },
         { status: 400 }
@@ -67,42 +73,57 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (product.item_stock < quantity) {
+    if (product.is_admin_only) {
       return NextResponse.json(
-        { error: "Stock insuficiente" },
-        { status: 400 }
+        { error: "Producto no disponible" },
+        { status: 404 }
       );
     }
 
-    // Actualizar el stock del producto
-    await prisma.inventoryItem.update({
-      where: { item_id: productId },
-      data: {
-        item_stock: product.item_stock - quantity,
-      },
-    });
+    const quote = buildSaleQuote(
+      [{
+        id: product.item_id,
+        name: product.item_name,
+        price: product.item_price,
+        discountPercent: product.item_discount,
+        stock: product.item_stock,
+      }],
+      [{ productId, quantity }],
+    );
+    if (!quote.ok) {
+      return NextResponse.json(
+        { error: "No se pudo procesar la compra", details: quote.issues },
+        { status: 400 },
+      );
+    }
 
-    // Crear el registro de la compra (asumiendo que tienes un modelo Purchase)
-    const discount = product.item_discount || 0; // Usa 0 como valor por defecto
+    const purchase = await prisma.$transaction(async (tx) => {
+      const updated = await tx.inventoryItem.updateMany({
+        where: { item_id: productId, item_stock: { gte: quantity } },
+        data: { item_stock: { decrement: quantity } },
+      });
+      if (updated.count !== 1) throw new Error("STOCK_CHANGED");
 
-    const purchase = await prisma.purchase.create({
-      data: {
-        purchase_quantity: quantity,
-        purchase_total:
-          (product.item_price - product.item_price * (discount / 100)) * quantity,
-        customer: {
-          connect: { id: customerId },
+      return tx.purchase.create({
+        data: {
+          purchase_quantity: quantity,
+          purchase_total: quote.grandTotal,
+          customer: { connect: { id: authorization.token.id as string } },
+          product: { connect: { item_id: productId } },
         },
-        product: {
-          connect: { item_id: productId },
-        },
-      },
+      });
     });
     
 
     return NextResponse.json({ purchase }, { status: 201 });
   } catch (error) {
     console.error("Error al procesar la compra:", error);
+    if (error instanceof Error && error.message === "STOCK_CHANGED") {
+      return NextResponse.json(
+        { error: "El stock cambió mientras se procesaba la compra" },
+        { status: 409 },
+      );
+    }
     return NextResponse.json(
       { error: "Error al procesar la compra" },
       { status: 500 }

@@ -10,6 +10,7 @@ import { useSession } from "next-auth/react";
 type FormData = {
   username: string;
   password: string;
+  otp?: string;
 };
 
 export default function AuthPage() {
@@ -38,6 +39,7 @@ export default function AuthPage() {
       redirect: false,
       username: data.username,
       password: data.password,
+      otp: data.otp?.trim() || undefined,
       callbackUrl: "/",
     });
     if (res?.error) {
@@ -435,6 +437,58 @@ export default function AuthPage() {
                 {errors.password && (
                   <p style={{ marginTop: 4, fontSize: 12, color: "#E5484D" }}>
                     {errors.password.message}
+                  </p>
+                )}
+              </div>
+
+              {/* Forgot password */}
+              <div>
+                <label
+                  htmlFor="otp"
+                  style={{
+                    display: "block",
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: "0.12em",
+                    textTransform: "uppercase",
+                    color: "#0A0A0A",
+                    marginBottom: 6,
+                  }}
+                >
+                  Código 2FA (si está habilitado)
+                </label>
+                <input
+                  id="otp"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={6}
+                  {...register("otp", {
+                    pattern: {
+                      value: /^\d{6}$/,
+                      message: "El código 2FA debe tener 6 dígitos",
+                    },
+                  })}
+                  placeholder="123456"
+                  style={{
+                    width: "100%",
+                    height: 42,
+                    padding: "0 14px",
+                    background: "#fff",
+                    border: errors.otp
+                      ? "1px solid #E5484D"
+                      : "1px solid #E7E5E1",
+                    borderRadius: 10,
+                    color: "#1A1A1A",
+                    fontFamily: "'Inter', system-ui, sans-serif",
+                    fontSize: 14,
+                    outline: "none",
+                    boxSizing: "border-box",
+                  }}
+                />
+                {errors.otp && (
+                  <p style={{ marginTop: 4, fontSize: 12, color: "#E5484D" }}>
+                    {errors.otp.message}
                   </p>
                 )}
               </div>

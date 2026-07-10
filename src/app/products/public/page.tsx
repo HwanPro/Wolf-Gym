@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { FaShoppingCart, FaSearch } from "react-icons/fa";
 import Image from "next/image";
@@ -56,6 +56,12 @@ export default function PublicProductList() {
   const [quantity, setQuantity] = useState(1);
   const [showCart, setShowCart] = useState(false);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  const [paymentEmail, setPaymentEmail] = useState("");
+  const cartRef = useRef<Product[]>([]);
+  const paymentEmailRef = useRef("");
+
+  cartRef.current = cart;
+  paymentEmailRef.current = paymentEmail;
 
   const router = useRouter();
 
@@ -84,15 +90,15 @@ export default function PublicProductList() {
 
           try {
             // Calcula el total en céntimos desde el estado 'cart'
-            const totalCents =
-              cart.reduce((acc, it) => acc + it.price * (it.quantity || 1), 0) *
-              100;
-
+            const activeCart = cartRef.current;
             const resp = await axios.post("/api/payments/culqi", {
               token: tokenObject.id,
-              amount: totalCents,
               description: "Compra en línea",
-              email: "cliente@example.com", // Si tienes un email real, úsalo
+              email: paymentEmailRef.current,
+              items: activeCart.map((item) => ({
+                productId: item.id,
+                quantity: item.quantity || 1,
+              })),
             });
 
             if (resp.status === 200) {
@@ -123,7 +129,7 @@ export default function PublicProductList() {
     return () => {
       document.body.removeChild(script);
     };
-  }, []); // <- Array vacío: SOLO UNA VEZ
+  }, []);
 
   // 2. Cargar lista de productos
   useEffect(() => {
@@ -220,11 +226,20 @@ export default function PublicProductList() {
       return;
     }
 
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(paymentEmail.trim())) {
+      toast.error("Ingresa un correo válido para el comprobante de pago.");
+      return;
+    }
+
     setIsProcessingPayment(true);
 
     // Calcula el monto en céntimos:
-    const totalCents =
-      cart.reduce((acc, it) => acc + it.price * (it.quantity || 1), 0) * 100;
+    const totalCents = Math.round(
+      cart.reduce(
+        (acc, item) => acc + getDiscountedPrice(item) * (item.quantity || 1),
+        0,
+      ) * 100,
+    );
 
     // Configurar la ventana de pago (no reasignes callbacks)
     window.Culqi.publicKey = process.env.NEXT_PUBLIC_CULQI_PUBLIC_KEY!;
@@ -392,11 +407,11 @@ export default function PublicProductList() {
                     <div>
                       <p className="text-sm font-bold">{item.name}</p>
                       <p className="text-sm">
-                        Cantidad: {item.quantity} x S/.{item.price.toFixed(2)}
+                        Cantidad: {item.quantity} x S/.{getDiscountedPrice(item).toFixed(2)}
                       </p>
                       <p className="text-sm font-bold">
                         Subtotal: S/.{" "}
-                        {((item.quantity || 1) * item.price).toFixed(2)}
+                        {((item.quantity || 1) * getDiscountedPrice(item)).toFixed(2)}
                       </p>
                     </div>
                     <button
@@ -409,10 +424,26 @@ export default function PublicProductList() {
                 ))}
                 <hr className="my-4" />
                 <div className="text-right">
+                  <label className="mb-1 block text-left text-sm font-semibold text-black" htmlFor="payment-email">
+                    Correo para el comprobante
+                  </label>
+                  <input
+                    id="payment-email"
+                    type="email"
+                    value={paymentEmail}
+                    onChange={(event) => setPaymentEmail(event.target.value)}
+                    autoComplete="email"
+                    className="mb-3 w-full rounded border border-gray-300 px-3 py-2 text-black"
+                    placeholder="cliente@correo.com"
+                  />
                   <p className="text-lg font-bold">
                     Total a pagar: S/.{" "}
                     {cart
-                      .reduce((acc, i) => acc + (i.quantity || 1) * i.price, 0)
+                      .reduce(
+                        (acc, item) =>
+                          acc + (item.quantity || 1) * getDiscountedPrice(item),
+                        0,
+                      )
                       .toFixed(2)}
                   </p>
                   <button

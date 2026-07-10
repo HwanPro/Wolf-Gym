@@ -4,6 +4,7 @@ import prisma from "@/infrastructure/prisma/prisma";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { v4 as uuidv4 } from "uuid";
 import { getToken } from "next-auth/jwt";
+import { safeStorageSegment, validateUploadFile } from "@/server/files/file-validation";
 
 const DEFAULT_PRODUCT_IMAGE = "/uploads/images/logo2.jpg";
 
@@ -69,10 +70,18 @@ export async function POST(req: NextRequest) {
     if (!(file instanceof File)) {
       return NextResponse.json({ error: "Invalid file" }, { status: 400 });
     }
+    const validationError = validateUploadFile(file, {
+      allowedTypes: ["image/jpeg", "image/png", "image/webp"],
+      allowedExtensions: [".jpg", ".jpeg", ".png", ".webp"],
+      maxBytes: 5 * 1024 * 1024,
+    });
+    if (validationError) {
+      return NextResponse.json({ error: validationError }, { status: 400 });
+    }
 
     // Sube a S3 (tu código actual) -> imageUrl
     const buffer = Buffer.from(await file.arrayBuffer());
-    const uniqueFileName = `${uuidv4()}-${file.name}`;
+    const uniqueFileName = `${uuidv4()}-${safeStorageSegment(file.name)}`;
     await s3Client.send(new PutObjectCommand({
       Bucket: process.env.AWS_BUCKET_NAME!,
       Key: `uploads/${uniqueFileName}`,

@@ -99,18 +99,18 @@ body {
 }
 
 :root {
-  --wolf-page: #f5f5f4;
+  --wolf-page: #f4f1ea;
   --wolf-surface: #ffffff;
-  --wolf-muted-surface: #e7e5e1;
-  --wolf-ink: #0a0a0a;
-  --wolf-subtle: #6b6b68;
-  --wolf-border: #d6d4ce;
-  --wolf-primary: #ffc21a;
-  --wolf-primary-strong: #e5a800;
-  --wolf-secondary: #ff7a1a;
-  --wolf-success: #ffc21a;
-  --wolf-warning: #ff7a1a;
-  --wolf-danger: #ff7a1a;
+  --wolf-muted-surface: #f7f8fa;
+  --wolf-ink: #141414;
+  --wolf-subtle: #667085;
+  --wolf-border: #e5e7eb;
+  --wolf-primary: #facc15;
+  --wolf-primary-strong: #d9a300;
+  --wolf-secondary: #2563eb;
+  --wolf-success: #16a34a;
+  --wolf-warning: #d97706;
+  --wolf-danger: #dc2626;
 }
 
 /* Fix para z-index de SweetAlert2 sobre modales */

@@ -1,9 +1,10 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/infrastructure/prisma/prisma";
 import {
   DEFAULT_MEMBERSHIP_PLANS,
   toMembershipPlanView,
 } from "@/lib/membershipPlans";
+import { requireAdmin } from "@/server/auth/authorization";
 
 export async function GET() {
   try {
@@ -11,24 +12,10 @@ export async function GET() {
       orderBy: { price: "asc" },
     });
 
-    if (existingPlans.length === 0) {
-      await prisma.plan.createMany({
-        data: DEFAULT_MEMBERSHIP_PLANS.map((plan) => ({
-          name: plan.name,
-          price: plan.price,
-          description: plan.description || "",
-          slug: plan.slug || plan.name.toLowerCase().replace(/\s+/g, "-"),
-        })),
-        skipDuplicates: true,
-      });
-    }
-
-    const plans = existingPlans.length
-      ? existingPlans
-      : await prisma.plan.findMany({ orderBy: { price: "asc" } });
-
     return NextResponse.json(
-      plans.length > 0 ? plans.map(toMembershipPlanView) : DEFAULT_MEMBERSHIP_PLANS,
+      existingPlans.length > 0
+        ? existingPlans.map(toMembershipPlanView)
+        : DEFAULT_MEMBERSHIP_PLANS,
       { status: 200 },
     );
   } catch (error) {
@@ -37,7 +24,10 @@ export async function GET() {
   }
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  const authorization = await requireAdmin(request);
+  if (!authorization.authorized) return authorization.response;
+
   try {
     const body = await request.json();
     const name = String(body?.name || "").trim();

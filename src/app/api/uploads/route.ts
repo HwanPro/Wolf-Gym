@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { requireAdmin } from "@/server/auth/authorization";
+import {
+  safeStorageSegment,
+  validateUploadFile,
+} from "@/server/files/file-validation";
 
 // Configuración del cliente S3
 const s3Client = new S3Client({
@@ -11,6 +16,9 @@ const s3Client = new S3Client({
 });
 
 export async function POST(req: NextRequest) {
+  const authorization = await requireAdmin(req);
+  if (!authorization.authorized) return authorization.response;
+
   try {
     // Obtener el archivo del formData
     const data = await req.formData();
@@ -24,34 +32,23 @@ export async function POST(req: NextRequest) {
     }
 
     // Validar el tipo y tamaño del archivo
-    const allowedTypes = ["image/jpeg", "image/png", "application/pdf"];
-    const maxFileSize = 5 * 1024 * 1024; // 5 MB
-
-    if (!allowedTypes.includes(file.type)) {
-      return NextResponse.json(
-        { error: "Tipo de archivo no permitido" },
-        { status: 400 }
-      );
-    }
-
-    if (file.size > maxFileSize) {
-      return NextResponse.json(
-        { error: "El archivo es demasiado grande" },
-        { status: 400 }
-      );
+    const validationError = validateUploadFile(file, {
+      allowedTypes: ["image/jpeg", "image/png", "application/pdf"],
+      allowedExtensions: [".jpg", ".jpeg", ".png", ".pdf"],
+      maxBytes: 5 * 1024 * 1024,
+    });
+    if (validationError) {
+      return NextResponse.json({ error: validationError }, { status: 400 });
     }
 
     // Get folder from form data or default to 'uploads'
-    const folder = data.get('folder') as string || 'uploads';
+    const folder = safeStorageSegment(String(data.get("folder") || "uploads"));
 
     // Convertir el archivo a buffer
     const buffer = Buffer.from(await file.arrayBuffer());
 
     // Generar nombre único para el archivo
-    const fileExtension = file.name.split(".").pop();
-    const fileName = `${Date.now()}-${Math.random()
-      .toString(36)
-      .substring(2)}.${fileExtension}`;
+    const fileName = `${Date.now()}-${crypto.randomUUID()}-${safeStorageSegment(file.name)}`;
     const fileKey = `${folder}/${fileName}`;
 
     // Subir a S3

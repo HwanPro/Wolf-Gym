@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/infrastructure/prisma/prisma";
 import { S3Client, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import dotenv from "dotenv";
+import { requireAdmin } from "@/server/auth/authorization";
 
 // Cargar variables de entorno
 dotenv.config({ path: ".env.local" });
@@ -23,6 +24,9 @@ type ContextParams = {
 
 // Eliminar producto por ID
 export async function DELETE(req: NextRequest, context: ContextParams) {
+  const authorization = await requireAdmin(req);
+  if (!authorization.authorized) return authorization.response;
+
   try {
     const { id } = context.params;
 
@@ -71,6 +75,9 @@ export async function DELETE(req: NextRequest, context: ContextParams) {
 
 // Actualizar producto por ID
 export async function PUT(req: NextRequest, context: ContextParams) {
+  const authorization = await requireAdmin(req);
+  if (!authorization.authorized) return authorization.response;
+
   try {
     const { id } = context.params;
 

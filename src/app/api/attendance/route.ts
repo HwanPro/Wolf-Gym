@@ -2,23 +2,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/infrastructure/prisma/prisma";
 import { autoCloseExpiredAttendances } from "@/lib/attendanceAutoClose";
+import { getLimaDayRange } from "@/domain/attendance/attendance-policy";
+import { requireAdmin } from "@/server/auth/authorization";
 
 export const dynamic = "force-dynamic";
-
-/** ---------- Helpers de fecha (Lima) ----------
- * Si tu server corre en UTC y quieres tratar todo como Lima,
- * puedes restar 5 horas aquí. Por ahora usamos la hora local del servidor.
- */
-function limaNow() {
-  return new Date();
-}
-function todayRangeFrom(now: Date) {
-  const start = new Date(now);
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(now);
-  end.setHours(23, 59, 59, 999);
-  return { start, end };
-}
 
 // Configurables
 const REBOUND_SECONDS = 60;       // antirrebote entre toques
@@ -27,7 +14,10 @@ const MAX_ENTRIES_PER_DAY = 2;    // (p.ej. GYM + FULL BODY)
 /* =========================
  *         GET
  * ========================= */
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const authorization = await requireAdmin(request);
+  if (!authorization.authorized) return authorization.response;
+
   try {
     await autoCloseExpiredAttendances();
 
@@ -74,7 +64,7 @@ export async function GET() {
     // Aseguramos userId en la respuesta (por si tu modelo cambia)
     const data = records.map((r) => ({
       id: r.id,
-      userId: (r as any).userId ?? r.user.id,
+      userId: r.userId,
       checkInTime: r.checkInTime,
       checkOutTime: r.checkOutTime ?? null,
       durationMins: r.durationMins ?? null,
@@ -116,11 +106,15 @@ export async function GET() {
  *   (registro por teléfono)
  * ========================= */
 export async function POST(req: NextRequest) {
+  const authorization = await requireAdmin(req);
+  if (!authorization.authorized) return authorization.response;
+
   try {
     await autoCloseExpiredAttendances();
 
-    const body = await req.json().catch(() => ({} as any));
-    const rawIdentifier = String(body?.identifier || body?.dni || body?.phone || "");
+    const body: unknown = await req.json().catch(() => ({}));
+    const input = body && typeof body === "object" ? body as Record<string, unknown> : {};
+    const rawIdentifier = String(input.identifier || input.dni || input.phone || "");
     const digits = rawIdentifier.replace(/\D/g, "");
     const normalized = digits.length >= 9 ? digits.slice(-9) : "";
     const dni = digits.length === 8 ? digits : "";
@@ -167,8 +161,8 @@ export async function POST(req: NextRequest) {
     }
 
     // 2) Definimos ventana del día y ahora
-    const now = limaNow();
-    const { start, end } = todayRangeFrom(now);
+    const now = new Date();
+    const { start, end } = getLimaDayRange(now);
 
     // 3) Ejecutamos todo en una transacción (evita duplicados por carreras)
     const result = await prisma.$transaction(async (tx) => {

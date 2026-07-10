@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/infrastructure/prisma/prisma";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { v4 as uuidv4 } from "uuid";
+import { requireAdmin } from "@/server/auth/authorization";
+import { safeStorageSegment, validateUploadFile } from "@/server/files/file-validation";
 
 const s3Client = new S3Client({
   region: process.env.AWS_REGION!,
@@ -27,6 +29,9 @@ export async function GET() {
 
 // POST → Subir imagen y guardar en DB
 export async function POST(request: NextRequest) {
+  const authorization = await requireAdmin(request);
+  if (!authorization.authorized) return authorization.response;
+
   try {
     const data = await request.formData();
     const file = data.get("file") as File;
@@ -38,15 +43,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
-    const maxFileSize = 5 * 1024 * 1024;
-    if (!allowedTypes.includes(file.type) || file.size > maxFileSize) {
-      return NextResponse.json({ error: "Archivo inválido" }, { status: 400 });
+    const validationError = validateUploadFile(file, {
+      allowedTypes: ["image/jpeg", "image/png", "image/webp"],
+      allowedExtensions: [".jpg", ".jpeg", ".png", ".webp"],
+      maxBytes: 5 * 1024 * 1024,
+    });
+    if (validationError) {
+      return NextResponse.json({ error: validationError }, { status: 400 });
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
     const today = new Date();
-    const fileKey = `uploads/${today.getFullYear()}/${today.getMonth() + 1}/${today.getDate()}/${uuidv4()}-${file.name}`;
+    const fileKey = `uploads/${today.getUTCFullYear()}/${today.getUTCMonth() + 1}/${today.getUTCDate()}/${uuidv4()}-${safeStorageSegment(file.name)}`;
 
     const uploadParams = {
       Bucket: process.env.AWS_BUCKET_NAME!,

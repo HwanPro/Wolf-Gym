@@ -11,7 +11,8 @@ export async function middleware(request: NextRequest) {
   // Rutas privadas:
   if (
     request.nextUrl.pathname.startsWith("/admin") ||
-    request.nextUrl.pathname.startsWith("/client")
+    request.nextUrl.pathname.startsWith("/client") ||
+    request.nextUrl.pathname.startsWith("/profile")
   ) {
     // Si no hay token => fuerza login
     if (!token) {
@@ -36,5 +37,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/client/:path*", "/admin/:path*"],
+  matcher: ["/client/:path*", "/admin/:path*", "/profile/:path*"],
 };

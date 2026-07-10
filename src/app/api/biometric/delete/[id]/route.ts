@@ -1,6 +1,7 @@
 // src/app/api/biometric/delete/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/infrastructure/prisma/prisma";
+import { requireAdmin } from "@/server/auth/authorization";
 
 const BASE = process.env.BIOMETRIC_BASE || "http://127.0.0.1:8001";
 export const dynamic = "force-dynamic";
@@ -9,6 +10,9 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const authorization = await requireAdmin(request);
+  if (!authorization.authorized) return authorization.response;
+
   try {
     const { id: userId } = await params;
 
@@ -41,7 +45,6 @@ export async function DELETE(
       {
         ok: false,
         message: "Error interno del servidor al eliminar huella",
-        error: error instanceof Error ? error.message : "Error desconocido",
       },
       { status: 500 }
     );

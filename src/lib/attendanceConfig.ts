@@ -4,15 +4,15 @@ export const TIMEZONE = "America/Lima";
 // Horarios de atención (minutos desde 00:00)
 export const OPEN_WINDOWS: Record<number, { start: number; end: number }> = {
   // 0=Dom ... 6=Sáb
-  1: { start: 18 * 60, end: 22 * 60 }, // L
-  2: { start: 18 * 60, end: 22 * 60 }, // M
-  3: { start: 18 * 60, end: 22 * 60 }, // M
-  4: { start: 18 * 60, end: 22 * 60 }, // J
-  5: { start: 18 * 60, end: 22 * 60 }, // V
-  6: { start: 18 * 60, end: 20 * 60 }, // S
+  1: { start: 6 * 60, end: 21 * 60 }, // L
+  2: { start: 6 * 60, end: 21 * 60 }, // M
+  3: { start: 6 * 60, end: 21 * 60 }, // M
+  4: { start: 6 * 60, end: 21 * 60 }, // J
+  5: { start: 6 * 60, end: 21 * 60 }, // V
+  6: { start: 6 * 60, end: 20 * 60 }, // S
 };
 
-export const AUTO_CLOSE_MIN = 22 * 60; // 22:00 (L-V)
+export const AUTO_CLOSE_MIN = 21 * 60; // 21:00 (L-V)
 export const AUTO_CLOSE_MIN_SAT = 20 * 60; // 20:00 sáb
 
 // Ventanas separadas para tipo de sesión (EDITA libremente)
@@ -24,10 +24,10 @@ export const SESSION_WINDOWS: Array<{
   endMin: number;
   type: SessionType;
 }> = [
-  // Ejemplo: 18:00–19:30 FULLBODY, 19:30–22:00 GYM (L-V)
+  { dow: [1,2,3,4,5], startMin: 6*60, endMin: 18*60, type: "GYM" },
   { dow: [1,2,3,4,5], startMin: 18*60,   endMin: 19*60+30, type: "FULLBODY" },
-  { dow: [1,2,3,4,5], startMin: 19*60+30, endMin: 22*60,   type: "GYM" },
-  // Sáb: 18:00–20:00 FULLBODY
+  { dow: [1,2,3,4,5], startMin: 19*60+30, endMin: 21*60,   type: "GYM" },
+  { dow: [6],          startMin: 6*60,    endMin: 18*60,   type: "GYM" },
   { dow: [6],          startMin: 18*60,   endMin: 20*60,   type: "FULLBODY" },
 ];
 

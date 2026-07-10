@@ -1,5 +1,6 @@
 // src/app/api/biometric/register/[id]/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { requireAdmin } from "@/server/auth/authorization";
 
 export const dynamic = "force-dynamic";
 
@@ -17,9 +18,12 @@ function timeoutFetch(input: RequestInfo | URL, init?: RequestInit, ms = TIMEOUT
 type CaptureResponse = { ok: boolean; template?: string | null; message?: string | null };
 
 export async function POST(
-  req: Request,
+  req: NextRequest,
   ctx: { params: Promise<{ id: string }> } // <- params es Promise, hay que await
 ) {
+  const authorization = await requireAdmin(req);
+  if (!authorization.authorized) return authorization.response;
+
   try {
     const { id } = await ctx.params;
 
