@@ -10,6 +10,7 @@ import "react-toastify/dist/ReactToastify.css";
 import MembershipSelection from "@/ui/components/MembershipSelection";
 import { Button } from "@/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/ui/dialog";
+import { Pencil } from "lucide-react";
 import {
   dialogSurfaceClass,
   fieldClass,
@@ -42,11 +43,13 @@ interface Client {
 interface EditClientDialogProps {
   client: Client;
   onUpdate: (updatedClient: Client) => Promise<void>;
+  compactTrigger?: boolean;
 }
 
 export default function EditClientDialog({
   client,
   onUpdate,
+  compactTrigger = false,
 }: EditClientDialogProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [formData, setFormData] = useState<Client>(client);
@@ -173,8 +176,16 @@ export default function EditClientDialog({
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>
-        <Button className="bg-wolf-primary text-wolf-ink hover:bg-yellow-300">
-          Editar
+        <Button
+          title={compactTrigger ? "Editar cliente" : undefined}
+          aria-label={compactTrigger ? "Editar cliente" : undefined}
+          className={
+            compactTrigger
+              ? "h-9 w-9 border border-white/15 bg-zinc-900 p-0 text-zinc-100 hover:bg-zinc-800"
+              : "bg-wolf-primary text-wolf-ink hover:bg-yellow-300"
+          }
+        >
+          {compactTrigger ? <Pencil className="h-4 w-4" /> : "Editar"}
         </Button>
       </DialogTrigger>
 

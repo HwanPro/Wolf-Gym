@@ -1164,8 +1164,8 @@ export default function ClientsPage() {
             </p>
           </div>
 
-          {/* Mobile cards */}
-          <div className="grid gap-3 p-3 min-[1360px]:hidden">
+          {/* Responsive client rows. The full table only appears when every column fits. */}
+          <div className="grid min-w-0 gap-3 p-3 min-[1760px]:hidden">
             {filteredClients.length > 0 ? (
               filteredClients.map((client) => {
                 const uid = client.userId || client.id;
@@ -1218,15 +1218,7 @@ export default function ClientsPage() {
                         {client.plan}
                       </span>
                     </div>
-                    <div
-                      style={{
-                        marginTop: 12,
-                        display: "grid",
-                        gridTemplateColumns: "1fr 1fr",
-                        gap: 8,
-                        fontSize: 12,
-                      }}
-                    >
+                    <div className="mt-3 grid grid-cols-2 gap-3 text-xs min-[720px]:grid-cols-5">
                       <div>
                         <p
                           style={{
@@ -1329,7 +1321,7 @@ export default function ClientsPage() {
                       >
                         Operaciones
                       </p>
-                      <div className="grid grid-cols-1 gap-2 min-[440px]:grid-cols-2">
+                      <div className="grid grid-cols-1 gap-2 min-[440px]:grid-cols-2 min-[760px]:grid-cols-3 min-[1200px]:flex min-[1200px]:flex-nowrap min-[1200px]:items-center">
                         <Button
                           onClick={() => {
                             setSelectedClientForDebt({
@@ -1339,19 +1331,28 @@ export default function ClientsPage() {
                             });
                             setShowDebtDialog(true);
                           }}
-                          className="w-full justify-center border border-white/15 bg-zinc-900 text-zinc-100 hover:bg-zinc-800"
+                          className="w-full justify-center border border-white/15 bg-zinc-900 text-zinc-100 hover:bg-zinc-800 min-[1200px]:w-auto"
                         >
                           <BadgeDollarSign className="h-4 w-4" />
                           Cobros
                         </Button>
                         <Button
-                          className={`${busy[uid] ? "cursor-not-allowed opacity-50" : "hover:bg-yellow-300"} w-full justify-center bg-yellow-400 text-black`}
+                          className={`${busy[uid] ? "cursor-not-allowed opacity-50" : "hover:bg-yellow-300"} w-full justify-center whitespace-nowrap bg-yellow-400 text-black min-[1200px]:w-auto`}
                           onClick={() => registerFingerprint(uid)}
                           disabled={!!busy[uid] || !!deleting[uid]}
                         >
                           {has ? "Reemplazar huella" : "Registrar huella"}
                         </Button>
-                        <div className="[&>button]:w-full [&>button]:justify-center">
+                        <Button
+                          className="w-full justify-center !border-white/15 !bg-zinc-900 !text-zinc-100 hover:!bg-zinc-800 min-[1200px]:w-auto"
+                          onClick={() => verifyFingerprint(uid)}
+                          disabled={!!busy[uid] || !!deleting[uid]}
+                          variant="outline"
+                        >
+                          <ShieldCheck className="h-4 w-4" />
+                          Verificar
+                        </Button>
+                        <div className="[&>button]:w-full [&>button]:justify-center min-[1200px]:[&>button]:w-auto">
                           <EditClientDialog
                             client={{ ...client, email: client.userName }}
                             onUpdate={async (updated) => {
@@ -1368,7 +1369,7 @@ export default function ClientsPage() {
                           />
                         </div>
                         <Button
-                          className="w-full justify-center !border-white/15 !bg-zinc-900 !text-zinc-100 hover:!bg-zinc-800"
+                          className="w-full justify-center !border-white/15 !bg-zinc-900 !text-zinc-100 hover:!bg-zinc-800 min-[1200px]:w-auto"
                           onClick={() => sendCredentials(client)}
                           disabled={!!busy[client.id] || !!deleting[client.id]}
                           variant="outline"
@@ -1377,12 +1378,23 @@ export default function ClientsPage() {
                           Credenciales
                         </Button>
                         <Button
-                          className="w-full justify-center border border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500 hover:text-white"
+                          className="w-full justify-center border border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500 hover:text-white min-[1200px]:w-auto"
                           onClick={() => handleDeleteClick(client.id)}
                           disabled={!!deleting[client.id] || isPageLoading}
                         >
                           <Trash2 className="h-4 w-4" />
                           Eliminar
+                        </Button>
+                        <Button
+                          title="Eliminar huella"
+                          aria-label="Eliminar huella"
+                          className={`w-full justify-center whitespace-nowrap !border-red-500/40 !bg-red-500/10 !text-red-300 hover:!bg-red-500 hover:!text-white min-[1200px]:w-auto ${busy[uid] ? "cursor-not-allowed opacity-50" : ""}`}
+                          onClick={() => deleteFingerprint(uid)}
+                          disabled={!!busy[uid] || !!deleting[uid]}
+                          variant="outline"
+                        >
+                          <Fingerprint className="h-4 w-4" />
+                          Eliminar huella
                         </Button>
                       </div>
                     </div>
@@ -1404,7 +1416,7 @@ export default function ClientsPage() {
           </div>
 
           {/* Desktop table */}
-          <div className="hidden overflow-x-auto min-[1180px]:block">
+          <div className="hidden overflow-x-auto min-[1760px]:block">
             <Table className="w-full min-w-[1660px] table-auto border-separate border-spacing-y-1 text-sm [&_tbody_tr>td]:border-y [&_tbody_tr>td]:border-white/10 [&_tbody_tr>td]:bg-zinc-950/70 [&_tbody_tr>td:first-child]:rounded-l-md [&_tbody_tr>td:first-child]:border-l [&_tbody_tr>td:last-child]:rounded-r-md [&_tbody_tr>td:last-child]:border-r [&_tbody_tr:hover>td]:bg-zinc-900">
               <TableHeader className="sticky top-0 z-10 !bg-zinc-950">
                 <TableRow className="border-zinc-800 !bg-zinc-950">
@@ -1608,7 +1620,7 @@ export default function ClientsPage() {
                             {has ? "Registrada" : "Sin huella"}
                           </span>
                         </TableCell>
-                        <TableCell style={{ ...tdStyle, minWidth: 610 }}>
+                        <TableCell style={{ ...tdStyle, minWidth: 330 }}>
                           <div className="flex min-w-max items-center gap-1.5">
                             <Button
                               onClick={() => {
@@ -1619,32 +1631,39 @@ export default function ClientsPage() {
                                 });
                                 setShowDebtDialog(true);
                               }}
-                              className="h-9 border border-white/15 bg-zinc-900 px-2.5 text-xs text-zinc-100 hover:bg-zinc-800"
+                              title="Gestionar cobros"
+                              aria-label="Gestionar cobros"
+                              className="h-9 w-9 border border-white/15 bg-zinc-900 p-0 text-zinc-100 hover:bg-zinc-800"
                             >
-                              <BadgeDollarSign className="h-3.5 w-3.5" />
-                              Cobros
+                              <BadgeDollarSign className="h-4 w-4" />
                             </Button>
                             <Button
-                              className={`${busy[uid] ? "opacity-50 cursor-not-allowed" : "hover:bg-yellow-300"} h-9 whitespace-nowrap bg-yellow-400 px-2.5 text-xs text-black`}
+                              title={has ? "Reemplazar huella" : "Registrar huella"}
+                              aria-label={has ? "Reemplazar huella" : "Registrar huella"}
+                              className={`${busy[uid] ? "cursor-not-allowed opacity-50" : "hover:bg-yellow-300"} h-9 w-9 bg-yellow-400 p-0 text-black`}
                               onClick={() => registerFingerprint(uid)}
                               disabled={!!busy[uid] || !!deleting[uid]}
                             >
                               {busy[uid] ? (
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              ) : null}
-                              {has ? "Reemplazar" : "Registrar huella"}
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Fingerprint className="h-4 w-4" />
+                              )}
                             </Button>
                             <Button
-                              className={`h-9 px-2.5 text-xs !border-white/15 !bg-zinc-900 !text-zinc-100 hover:!bg-zinc-800 ${busy[uid] ? "opacity-50 cursor-not-allowed" : ""}`}
+                              title="Verificar huella"
+                              aria-label="Verificar huella"
+                              className={`h-9 w-9 p-0 !border-white/15 !bg-zinc-900 !text-zinc-100 hover:!bg-zinc-800 ${busy[uid] ? "cursor-not-allowed opacity-50" : ""}`}
                               onClick={() => verifyFingerprint(uid)}
                               disabled={!!busy[uid] || !!deleting[uid]}
                               variant="outline"
                             >
-                              Verificar
+                              <ShieldCheck className="h-4 w-4" />
                             </Button>
-                            <div className="[&>button]:h-9 [&>button]:px-2.5 [&>button]:text-xs">
+                            <div>
                               <EditClientDialog
                                 client={{ ...client, email: client.userName }}
+                                compactTrigger
                                 onUpdate={async (updated) => {
                                   await mutate();
                                   setFilteredClients((prev) =>
@@ -1659,30 +1678,28 @@ export default function ClientsPage() {
                               />
                             </div>
                             <Button
-                              className="inline-flex h-9 items-center gap-1 px-2.5 text-xs !border-white/15 !bg-zinc-900 !text-zinc-100 hover:!bg-zinc-800"
+                              title="Enviar credenciales"
+                              aria-label="Enviar credenciales"
+                              className="h-9 w-9 p-0 !border-white/15 !bg-zinc-900 !text-zinc-100 hover:!bg-zinc-800"
                               onClick={() => sendCredentials(client)}
                               disabled={
                                 !!busy[client.id] || !!deleting[client.id]
                               }
                               variant="outline"
                             >
-                              <Send className="h-3.5 w-3.5" />
-                              Credenciales
+                              <Send className="h-4 w-4" />
                             </Button>
                             <Button
-                              className="inline-flex h-9 items-center gap-1 border border-red-500/40 bg-red-500/10 px-2.5 text-xs text-red-300 hover:bg-red-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                              title="Eliminar cliente"
+                              aria-label="Eliminar cliente"
+                              className="h-9 w-9 border border-red-500/40 bg-red-500/10 p-0 text-red-300 hover:bg-red-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                               onClick={() => handleDeleteClick(client.id)}
                               disabled={!!deleting[client.id] || isPageLoading}
                             >
                               {deleting[client.id] ? (
-                                <span className="flex items-center gap-2">
-                                  <BtnSpinner /> Eliminando…
-                                </span>
+                                <BtnSpinner />
                               ) : (
-                                <>
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                  Eliminar
-                                </>
+                                <Trash2 className="h-4 w-4" />
                               )}
                             </Button>
                             <Button
