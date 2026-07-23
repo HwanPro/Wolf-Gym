@@ -16,7 +16,7 @@ export default function MembershipSelection({
   onPlanSelect,
 }: MembershipSelectionProps) {
   const [plans, setPlans] = useState<MembershipPlanView[]>(
-    DEFAULT_MEMBERSHIP_PLANS
+    DEFAULT_MEMBERSHIP_PLANS,
   );
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
   const [multiplier, setMultiplier] = useState<number>(1);
@@ -39,7 +39,7 @@ export default function MembershipSelection({
 
   const plansByName = useMemo(
     () => new Map(plans.map((plan) => [plan.name, plan])),
-    [plans]
+    [plans],
   );
 
   const handlePlanSelect = (planName: string, duration: number) => {
@@ -47,7 +47,7 @@ export default function MembershipSelection({
     const start = new Date();
     const formattedStart = format(start, "yyyy-MM-dd");
     const end = new Date(start);
-    end.setDate(end.getDate() + (duration * multiplier));
+    end.setDate(end.getDate() + duration * multiplier);
     const formattedEnd = format(end, "yyyy-MM-dd");
     onPlanSelect(planName, formattedStart, formattedEnd);
   };
@@ -69,7 +69,7 @@ export default function MembershipSelection({
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-zinc-900">
+          <p className="text-xs font-semibold uppercase text-yellow-400">
             Membresía
           </p>
           <h3 className="text-base font-bold text-white">
@@ -84,8 +84,10 @@ export default function MembershipSelection({
             </span>
             <button
               type="button"
-              onClick={() => handleMultiplierChange(Math.max(1, multiplier - 1))}
-              className="grid h-8 w-8 place-items-center rounded-md border border-zinc-700 bg-black text-base font-black text-zinc-200 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40"
+              onClick={() =>
+                handleMultiplierChange(Math.max(1, multiplier - 1))
+              }
+              className="grid h-10 w-10 place-items-center rounded-md border border-zinc-700 bg-black text-base font-black text-zinc-200 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40"
               disabled={multiplier <= 1}
             >
               -
@@ -96,7 +98,7 @@ export default function MembershipSelection({
             <button
               type="button"
               onClick={() => handleMultiplierChange(multiplier + 1)}
-              className="grid h-8 w-8 place-items-center rounded-md bg-yellow-400 text-base font-black text-black hover:bg-yellow-300"
+              className="grid h-10 w-10 place-items-center rounded-md bg-yellow-400 text-base font-black text-black hover:bg-yellow-300"
             >
               +
             </button>
@@ -114,14 +116,14 @@ export default function MembershipSelection({
                 ? "1 día"
                 : `${multiplier} días`
               : plan.durationDays % 30 === 0 && plan.durationDays < 365
-              ? multiplier === 1
-                ? `${plan.durationDays / 30} mes${
-                    plan.durationDays / 30 === 1 ? "" : "es"
-                  }`
-                : `${(plan.durationDays / 30) * multiplier} meses`
-              : multiplier === 1
-              ? `${plan.durationDays} días`
-              : `${totalDuration} días`;
+                ? multiplier === 1
+                  ? `${plan.durationDays / 30} mes${
+                      plan.durationDays / 30 === 1 ? "" : "es"
+                    }`
+                  : `${(plan.durationDays / 30) * multiplier} meses`
+                : multiplier === 1
+                  ? `${plan.durationDays} días`
+                  : `${totalDuration} días`;
 
           return (
             <button
@@ -139,7 +141,9 @@ export default function MembershipSelection({
                   <p className="text-sm font-black">{plan.name}</p>
                   <p
                     className={`mt-1 text-xs ${
-                      selectedPlan === plan.name ? "text-black/70" : "text-zinc-400"
+                      selectedPlan === plan.name
+                        ? "text-black/70"
+                        : "text-zinc-400"
                     }`}
                   >
                     {durationText}
@@ -151,10 +155,13 @@ export default function MembershipSelection({
                 {multiplier > 1 && (
                   <p
                     className={`text-xs ${
-                      selectedPlan === plan.name ? "text-black/70" : "text-yellow-400"
+                      selectedPlan === plan.name
+                        ? "text-black/70"
+                        : "text-yellow-400"
                     }`}
                   >
-                    {plan.durationDays} días x {multiplier} = {totalDuration} días
+                    {plan.durationDays} días x {multiplier} = {totalDuration}{" "}
+                    días
                   </p>
                 )}
               </div>

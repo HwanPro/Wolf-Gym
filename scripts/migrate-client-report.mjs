@@ -45,10 +45,13 @@ function parseArgs(argv) {
     else if (arg === "--prune-missing") args.pruneMissing = true;
     else if (arg === "--file") args.file = argv[++i];
     else if (arg.startsWith("--file=")) args.file = arg.slice("--file=".length);
-    else if (arg === "--cutoff") args.cutoff = parseDateOnly(argv[++i], "cutoff");
-    else if (arg.startsWith("--cutoff=")) args.cutoff = parseDateOnly(arg.slice("--cutoff=".length), "cutoff");
+    else if (arg === "--cutoff")
+      args.cutoff = parseDateOnly(argv[++i], "cutoff");
+    else if (arg.startsWith("--cutoff="))
+      args.cutoff = parseDateOnly(arg.slice("--cutoff=".length), "cutoff");
     else if (arg === "--limit") args.limit = Number(argv[++i] || 0);
-    else if (arg.startsWith("--limit=")) args.limit = Number(arg.slice("--limit=".length));
+    else if (arg.startsWith("--limit="))
+      args.limit = Number(arg.slice("--limit=".length));
     else if (arg === "--help" || arg === "-h") {
       printHelp();
       process.exit(0);
@@ -61,7 +64,9 @@ function parseArgs(argv) {
 
   if (positionals.length) {
     const last = positionals.at(-1);
-    const hasTrailingDate = /^\d{4}-\d{2}-\d{2}$/.test(last) || /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(last);
+    const hasTrailingDate =
+      /^\d{4}-\d{2}-\d{2}$/.test(last) ||
+      /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(last);
     if (hasTrailingDate && positionals.length > 1) {
       args.cutoff = parseDateOnly(last, "cutoff");
       args.file = positionals.slice(0, -1).join(" ");
@@ -92,22 +97,37 @@ Opciones:
 }
 
 function startOfDate(date) {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  return new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
+  );
 }
 
 function parseDateOnly(value, label = "date") {
   if (!value) throw new Error(`Falta valor para ${label}`);
   if (value instanceof Date) return value;
-  const match = String(value).trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const match = String(value)
+    .trim()
+    .match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (match) {
-    return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+    return new Date(
+      Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])),
+    );
   }
-  const latamMatch = String(value).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  const latamMatch = String(value)
+    .trim()
+    .match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (latamMatch) {
-    return new Date(Date.UTC(Number(latamMatch[3]), Number(latamMatch[2]) - 1, Number(latamMatch[1])));
+    return new Date(
+      Date.UTC(
+        Number(latamMatch[3]),
+        Number(latamMatch[2]) - 1,
+        Number(latamMatch[1]),
+      ),
+    );
   }
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) throw new Error(`Fecha inválida para ${label}: ${value}`);
+  if (Number.isNaN(date.getTime()))
+    throw new Error(`Fecha inválida para ${label}: ${value}`);
   return date;
 }
 
@@ -139,7 +159,8 @@ function normalizePhone(value) {
   if (!digits) return null;
   if (digits.length === 9) return `+51${digits}`;
   if (digits.length === 11 && digits.startsWith("51")) return `+${digits}`;
-  if (digits.length > 9 && digits.endsWith(digits.slice(-9))) return `+51${digits.slice(-9)}`;
+  if (digits.length > 9 && digits.endsWith(digits.slice(-9)))
+    return `+51${digits.slice(-9)}`;
   return null;
 }
 
@@ -150,7 +171,9 @@ function normalizeDni(value) {
 
 function parseMoney(value) {
   if (value === null || value === undefined || value === "") return 0;
-  const text = String(value).replace(/[^\d,.-]/g, "").replace(",", ".");
+  const text = String(value)
+    .replace(/[^\d,.-]/g, "")
+    .replace(",", ".");
   const n = Number(text);
   return Number.isFinite(n) ? Math.max(0, n) : 0;
 }
@@ -184,7 +207,10 @@ function makeUsername(firstName, phone, existing) {
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "")
       .slice(0, 18) || "cliente";
-  const suffix = String(phone ?? "").replace(/\D/g, "").slice(-6) || crypto.randomInt(100000, 999999);
+  const suffix =
+    String(phone ?? "")
+      .replace(/\D/g, "")
+      .slice(-6) || crypto.randomInt(100000, 999999);
   const base = `${baseName}wg${suffix}`;
   let candidate = base;
   let counter = 2;
@@ -208,7 +234,11 @@ function xmlDecode(value) {
 function readZipEntries(filePath) {
   const buffer = fs.readFileSync(filePath);
   let eocd = -1;
-  for (let i = buffer.length - 22; i >= Math.max(0, buffer.length - 66000); i -= 1) {
+  for (
+    let i = buffer.length - 22;
+    i >= Math.max(0, buffer.length - 66000);
+    i -= 1
+  ) {
     if (buffer.readUInt32LE(i) === 0x06054b50) {
       eocd = i;
       break;
@@ -221,16 +251,20 @@ function readZipEntries(filePath) {
   let offset = buffer.readUInt32LE(eocd + 16);
 
   for (let i = 0; i < total; i += 1) {
-    if (buffer.readUInt32LE(offset) !== 0x02014b50) throw new Error("ZIP central directory inválido");
+    if (buffer.readUInt32LE(offset) !== 0x02014b50)
+      throw new Error("ZIP central directory inválido");
     const method = buffer.readUInt16LE(offset + 10);
     const compressedSize = buffer.readUInt32LE(offset + 20);
     const nameLength = buffer.readUInt16LE(offset + 28);
     const extraLength = buffer.readUInt16LE(offset + 30);
     const commentLength = buffer.readUInt16LE(offset + 32);
     const localOffset = buffer.readUInt32LE(offset + 42);
-    const name = buffer.subarray(offset + 46, offset + 46 + nameLength).toString("utf8");
+    const name = buffer
+      .subarray(offset + 46, offset + 46 + nameLength)
+      .toString("utf8");
 
-    if (buffer.readUInt32LE(localOffset) !== 0x04034b50) throw new Error(`ZIP local header inválido: ${name}`);
+    if (buffer.readUInt32LE(localOffset) !== 0x04034b50)
+      throw new Error(`ZIP local header inválido: ${name}`);
     const localNameLength = buffer.readUInt16LE(localOffset + 26);
     const localExtraLength = buffer.readUInt16LE(localOffset + 28);
     const dataStart = localOffset + 30 + localNameLength + localExtraLength;
@@ -258,7 +292,9 @@ function parseSharedStrings(xml) {
   const strings = [];
   for (const match of xml.matchAll(/<si\b[\s\S]*?<\/si>/g)) {
     const item = match[0];
-    const pieces = [...item.matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map((m) => xmlDecode(m[1]));
+    const pieces = [...item.matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map((m) =>
+      xmlDecode(m[1]),
+    );
     strings.push(pieces.join(""));
   }
   return strings;
@@ -277,7 +313,9 @@ function resolveSheetPath(entries) {
     const node = match[0];
     if (attr(node, "Id") === relId) {
       const target = attr(node, "Target").replace(/^\/+/, "");
-      return path.posix.normalize(target.startsWith("xl/") ? target : `xl/${target}`);
+      return path.posix.normalize(
+        target.startsWith("xl/") ? target : `xl/${target}`,
+      );
     }
   }
   return "xl/worksheets/sheet1.xml";
@@ -296,7 +334,8 @@ function parseSheetRows(xml, sharedStrings) {
       const column = ref.replace(/\d+/g, "");
       const index = columnToIndex(column);
       const rawValue = cellBody.match(/<v>([\s\S]*?)<\/v>/)?.[1] ?? "";
-      const inlineValue = cellBody.match(/<t\b[^>]*>([\s\S]*?)<\/t>/)?.[1] ?? "";
+      const inlineValue =
+        cellBody.match(/<t\b[^>]*>([\s\S]*?)<\/t>/)?.[1] ?? "";
       let value = "";
       if (type === "s") value = sharedStrings[Number(rawValue)] ?? "";
       else if (type === "inlineStr") value = xmlDecode(inlineValue);
@@ -316,7 +355,9 @@ function columnToIndex(column) {
 
 function readXlsxRows(filePath) {
   const entries = readZipEntries(filePath);
-  const sharedStrings = parseSharedStrings(entries.get("xl/sharedStrings.xml")?.toString("utf8"));
+  const sharedStrings = parseSharedStrings(
+    entries.get("xl/sharedStrings.xml")?.toString("utf8"),
+  );
   const sheetPath = resolveSheetPath(entries);
   const sheet = entries.get(sheetPath)?.toString("utf8");
   if (!sheet) throw new Error(`No se encontró la hoja ${sheetPath}`);
@@ -331,10 +372,14 @@ function cellDate(row, columnIndex) {
 }
 
 function parseReport(filePath, cutoff) {
-  if (!fs.existsSync(filePath)) throw new Error(`No existe el Excel: ${filePath}`);
+  if (!fs.existsSync(filePath))
+    throw new Error(`No existe el Excel: ${filePath}`);
   const rows = readXlsxRows(filePath);
-  const headerIndex = rows.findIndex((row) => row.some((cell) => normalizeHeader(cell) === "NRO"));
-  if (headerIndex < 0) throw new Error("No se encontró la fila de cabecera del reporte");
+  const headerIndex = rows.findIndex((row) =>
+    row.some((cell) => normalizeHeader(cell) === "NRO"),
+  );
+  if (headerIndex < 0)
+    throw new Error("No se encontró la fila de cabecera del reporte");
 
   const headers = rows[headerIndex].map(normalizeHeader);
   const index = (name) => headers.indexOf(normalizeHeader(name));
@@ -352,7 +397,10 @@ function parseReport(filePath, cutoff) {
   };
 
   for (const [name, value] of Object.entries(columns)) {
-    if (value < 0 && ["start", "end", "name", "phone", "service"].includes(name)) {
+    if (
+      value < 0 &&
+      ["start", "end", "name", "phone", "service"].includes(name)
+    ) {
       throw new Error(`Falta columna requerida en Excel: ${name}`);
     }
   }
@@ -377,7 +425,14 @@ function parseReport(filePath, cutoff) {
       /(^|\s)(TEST|PRUEBA)(\s|$)/i.test(normalizeText(rawName));
 
     if (isTest) {
-      tests.push({ fullName, phone, dni, startDate, endDate, reason: "sin datos/fechas o prueba" });
+      tests.push({
+        fullName,
+        phone,
+        dni,
+        startDate,
+        endDate,
+        reason: "sin datos/fechas o prueba",
+      });
       continue;
     }
 
@@ -462,71 +517,159 @@ async function getCleanupCandidates(prisma, cutoff, activePhones = null) {
   return candidates.map((candidate) => {
     const reasons = [];
     if (!candidate.profile) reasons.push("sin perfil");
-    if (candidate.profile?.profile_end_date && candidate.profile.profile_end_date < cutoff) reasons.push("vencido");
-    if (candidate.profile && !candidate.profile.profile_start_date) reasons.push("sin inicio");
-    if (candidate.profile && !candidate.profile.profile_end_date) reasons.push("sin fin");
-    if (/test|prueba/i.test(`${candidate.username} ${candidate.firstName} ${candidate.lastName}`)) reasons.push("prueba");
-    if (activePhones?.size && !activePhones.has(candidate.phoneNumber)) reasons.push("no está en Excel vigente");
+    if (
+      candidate.profile?.profile_end_date &&
+      candidate.profile.profile_end_date < cutoff
+    )
+      reasons.push("vencido");
+    if (candidate.profile && !candidate.profile.profile_start_date)
+      reasons.push("sin inicio");
+    if (candidate.profile && !candidate.profile.profile_end_date)
+      reasons.push("sin fin");
+    if (
+      /test|prueba/i.test(
+        `${candidate.username} ${candidate.firstName} ${candidate.lastName}`,
+      )
+    )
+      reasons.push("prueba");
+    if (activePhones?.size && !activePhones.has(candidate.phoneNumber))
+      reasons.push("no está en Excel vigente");
     return { ...candidate, reasons };
   });
 }
 
 async function deleteCandidates(prisma, candidates, { forceFinance }) {
   const skippedFinance = candidates.filter((item) => {
-    return !forceFinance && (item._count.payments > 0 || item._count.purchases > 0);
+    return (
+      !forceFinance && (item._count.payments > 0 || item._count.purchases > 0)
+    );
   });
-  const deletable = candidates.filter((item) => !skippedFinance.some((skip) => skip.id === item.id));
+  const deletable = candidates.filter(
+    (item) => !skippedFinance.some((skip) => skip.id === item.id),
+  );
   const ids = deletable.map((item) => item.id);
-  const profileIds = deletable.map((item) => item.profile?.profile_id).filter(Boolean);
+  const profileIds = deletable
+    .map((item) => item.profile?.profile_id)
+    .filter(Boolean);
 
   if (!ids.length) return { deletedUsers: 0, skippedFinance };
 
-  const result = await prisma.$transaction(async (tx) => {
-    await tx.debtHistory.deleteMany({ where: { clientProfileId: { in: profileIds } } });
-    await tx.dailyDebt.deleteMany({ where: { clientProfileId: { in: profileIds } } });
-    await tx.paymentRecord.deleteMany({ where: { payer_user_id: { in: ids } } });
-    await tx.purchase.deleteMany({ where: { customerId: { in: ids } } });
-    await tx.userContact.deleteMany({ where: { contact_user_id: { in: ids } } });
-    await tx.userMembershipPlan.deleteMany({ where: { userId: { in: ids } } });
-    await tx.emailVerification.deleteMany({ where: { userId: { in: ids } } });
-    await tx.session.deleteMany({ where: { userId: { in: ids } } });
-    await tx.account.deleteMany({ where: { userId: { in: ids } } });
-    const deletedFingerprints = await tx.fingerprint.deleteMany({ where: { user_id: { in: ids } } });
-    await tx.attendance.deleteMany({ where: { userId: { in: ids } } });
-    await tx.clientProfile.deleteMany({ where: { user_id: { in: ids } } });
-    const deleted = await tx.user.deleteMany({ where: { id: { in: ids } } });
-    return { deletedUsers: deleted.count, deletedFingerprints: deletedFingerprints.count };
-  }, { maxWait: 20000, timeout: 120000 });
+  const result = await prisma.$transaction(
+    async (tx) => {
+      await tx.debtHistory.deleteMany({
+        where: { clientProfileId: { in: profileIds } },
+      });
+      await tx.dailyDebt.deleteMany({
+        where: { clientProfileId: { in: profileIds } },
+      });
+      await tx.paymentRecord.deleteMany({
+        where: { payer_user_id: { in: ids } },
+      });
+      await tx.purchase.deleteMany({ where: { customerId: { in: ids } } });
+      await tx.userContact.deleteMany({
+        where: { contact_user_id: { in: ids } },
+      });
+      await tx.userMembershipPlan.deleteMany({
+        where: { userId: { in: ids } },
+      });
+      await tx.emailVerification.deleteMany({ where: { userId: { in: ids } } });
+      await tx.session.deleteMany({ where: { userId: { in: ids } } });
+      await tx.account.deleteMany({ where: { userId: { in: ids } } });
+      const deletedFingerprints = await tx.fingerprint.deleteMany({
+        where: { user_id: { in: ids } },
+      });
+      await tx.attendance.deleteMany({ where: { userId: { in: ids } } });
+      await tx.clientProfile.deleteMany({ where: { user_id: { in: ids } } });
+      const deleted = await tx.user.deleteMany({ where: { id: { in: ids } } });
+      return {
+        deletedUsers: deleted.count,
+        deletedFingerprints: deletedFingerprints.count,
+      };
+    },
+    { maxWait: 20000, timeout: 120000 },
+  );
 
   return { ...result, skippedFinance };
 }
 
 async function importClients(prisma, clients, { apply, limit }) {
   const existingUsers = await prisma.user.findMany({
-    select: { id: true, username: true, phoneNumber: true },
+    select: {
+      id: true,
+      username: true,
+      phoneNumber: true,
+      profile: { select: { documentNumber: true } },
+    },
   });
   const usernameSet = new Set(existingUsers.map((user) => user.username));
-  const byPhone = new Map(existingUsers.map((user) => [user.phoneNumber, user]));
+  const byPhone = new Map(
+    existingUsers.map((user) => [user.phoneNumber, user]),
+  );
+  const usersByDni = new Map();
+  for (const user of existingUsers) {
+    const dni = normalizeDni(user.profile?.documentNumber);
+    if (!dni) continue;
+    const matches = usersByDni.get(dni) || [];
+    matches.push(user);
+    usersByDni.set(dni, matches);
+  }
+  const byDni = new Map(
+    [...usersByDni.entries()]
+      .filter(([, matches]) => matches.length === 1)
+      .map(([dni, matches]) => [dni, matches[0]]),
+  );
   const rows = limit > 0 ? clients.slice(0, limit) : clients;
 
   let create = 0;
   let update = 0;
+  let matchedByDni = 0;
+  let matchedByPhone = 0;
+  let conflicts = 0;
+
+  const resolveExisting = (client) => {
+    const dniMatch = client.dni ? byDni.get(client.dni) : null;
+    const phoneMatch = byPhone.get(client.phone);
+    if (dniMatch && phoneMatch && dniMatch.id !== phoneMatch.id) {
+      return { existing: null, conflict: true, match: "conflict" };
+    }
+    if (dniMatch) return { existing: dniMatch, conflict: false, match: "dni" };
+    if (phoneMatch)
+      return { existing: phoneMatch, conflict: false, match: "phone" };
+    return { existing: null, conflict: false, match: "new" };
+  };
 
   for (const client of rows) {
-    if (byPhone.has(client.phone)) update += 1;
-    else create += 1;
+    const resolved = resolveExisting(client);
+    if (resolved.conflict) conflicts += 1;
+    else if (resolved.existing) {
+      update += 1;
+      if (resolved.match === "dni") matchedByDni += 1;
+      else matchedByPhone += 1;
+    } else create += 1;
   }
 
-  if (!apply) return { create, update, processed: rows.length };
+  if (!apply) {
+    return {
+      create,
+      update,
+      processed: rows.length,
+      matchedByDni,
+      matchedByPhone,
+      conflicts,
+    };
+  }
 
   for (const client of rows) {
-    const existing = byPhone.get(client.phone);
+    const resolved = resolveExisting(client);
+    if (resolved.conflict) continue;
+    const existing = resolved.existing;
     if (existing) {
       await prisma.user.update({
         where: { id: existing.id },
         data: {
           firstName: client.firstName,
           lastName: client.lastName,
+          phoneNumber: client.phone,
           profile: {
             upsert: {
               create: {
@@ -557,6 +700,10 @@ async function importClients(prisma, clients, { apply, limit }) {
           },
         },
       });
+      byPhone.delete(existing.phoneNumber);
+      const updatedUser = { ...existing, phoneNumber: client.phone };
+      byPhone.set(client.phone, updatedUser);
+      if (client.dni) byDni.set(client.dni, updatedUser);
       continue;
     }
 
@@ -589,9 +736,17 @@ async function importClients(prisma, clients, { apply, limit }) {
       select: { id: true, username: true, phoneNumber: true },
     });
     byPhone.set(created.phoneNumber, created);
+    if (client.dni) byDni.set(client.dni, created);
   }
 
-  return { create, update, processed: rows.length };
+  return {
+    create,
+    update,
+    processed: rows.length,
+    matchedByDni,
+    matchedByPhone,
+    conflicts,
+  };
 }
 
 async function main() {
@@ -602,7 +757,9 @@ async function main() {
   console.log("=== WolfGym migración de clientes ===");
   console.log(`Archivo: ${args.file}`);
   console.log(`Fecha de corte: ${dateKey(args.cutoff)}`);
-  console.log(`Modo: ${args.apply ? "APLICAR CAMBIOS" : "SIMULACIÓN (dry-run)"}`);
+  console.log(
+    `Modo: ${args.apply ? "APLICAR CAMBIOS" : "SIMULACIÓN (dry-run)"}`,
+  );
   console.log("");
   console.log("Excel:");
   console.log(`  Vigentes importables: ${report.active.length}`);
@@ -611,34 +768,60 @@ async function main() {
   console.log(`  Omitidos:             ${report.skipped.length}`);
   if (args.verbose) {
     for (const item of report.skipped.slice(0, 10)) {
-      console.log(`  omitido: ${item.fullName || item.dni || "sin nombre"} | ${item.reason}`);
+      console.log(
+        `  omitido: ${item.fullName || item.dni || "sin nombre"} | ${item.reason}`,
+      );
     }
     for (const item of report.tests.slice(0, 10)) {
-      console.log(`  prueba:  ${item.fullName || item.dni || "sin nombre"} | ${item.reason}`);
+      console.log(
+        `  prueba:  ${item.fullName || item.dni || "sin nombre"} | ${item.reason}`,
+      );
     }
   }
 
   try {
     if (args.cleanup) {
-      const activePhones = args.pruneMissing ? new Set(report.active.map((client) => client.phone)) : null;
-      const candidates = await getCleanupCandidates(prisma, args.cutoff, activePhones);
-      const withFinance = candidates.filter((item) => item._count.payments > 0 || item._count.purchases > 0);
-      const fingerprintCount = candidates.reduce((total, item) => total + item._count.fingerprints, 0);
+      const activePhones = args.pruneMissing
+        ? new Set(report.active.map((client) => client.phone))
+        : null;
+      const candidates = await getCleanupCandidates(
+        prisma,
+        args.cutoff,
+        activePhones,
+      );
+      const withFinance = candidates.filter(
+        (item) => item._count.payments > 0 || item._count.purchases > 0,
+      );
+      const fingerprintCount = candidates.reduce(
+        (total, item) => total + item._count.fingerprints,
+        0,
+      );
       console.log("");
       console.log("Base de datos:");
       console.log(`  Candidatos a borrar:  ${candidates.length}`);
       console.log(`  Huellas asociadas:    ${fingerprintCount}`);
-      console.log(`  Con pagos/compras:    ${withFinance.length}${withFinance.length && !args.forceFinance ? " (se omiten sin --force-finance)" : ""}`);
+      console.log(
+        `  Con pagos/compras:    ${withFinance.length}${withFinance.length && !args.forceFinance ? " (se omiten sin --force-finance)" : ""}`,
+      );
       for (const item of candidates.slice(0, 10)) {
-        const name = `${item.firstName ?? ""} ${item.lastName ?? ""}`.trim() || item.username;
-        const end = item.profile?.profile_end_date ? dateKey(item.profile.profile_end_date) : "sin fecha";
-        console.log(`  - ${name} | ${item.phoneNumber} | ${end} | ${item.reasons.join(", ")}`);
+        const name =
+          `${item.firstName ?? ""} ${item.lastName ?? ""}`.trim() ||
+          item.username;
+        const end = item.profile?.profile_end_date
+          ? dateKey(item.profile.profile_end_date)
+          : "sin fecha";
+        console.log(
+          `  - ${name} | ${item.phoneNumber} | ${end} | ${item.reasons.join(", ")}`,
+        );
       }
       if (args.apply) {
         const deleted = await deleteCandidates(prisma, candidates, args);
         console.log(`  Borrados realmente:   ${deleted.deletedUsers}`);
         console.log(`  Huellas borradas:     ${deleted.deletedFingerprints}`);
-        if (deleted.skippedFinance.length) console.log(`  Omitidos por finanza: ${deleted.skippedFinance.length}`);
+        if (deleted.skippedFinance.length)
+          console.log(
+            `  Omitidos por finanza: ${deleted.skippedFinance.length}`,
+          );
       }
     }
 
@@ -649,7 +832,11 @@ async function main() {
       console.log(`  Procesados: ${result.processed}`);
       console.log(`  Crear:      ${result.create}`);
       console.log(`  Actualizar: ${result.update}`);
-      if (!args.apply) console.log("  No se escribió nada. Ejecuta con --apply para aplicar.");
+      console.log(`    por DNI:  ${result.matchedByDni}`);
+      console.log(`    por tel.: ${result.matchedByPhone}`);
+      console.log(`  Conflictos: ${result.conflicts}`);
+      if (!args.apply)
+        console.log("  No se escribió nada. Ejecuta con --apply para aplicar.");
     }
   } finally {
     await prisma.$disconnect();

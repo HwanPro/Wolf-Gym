@@ -5,7 +5,15 @@ import Image from "next/image";
 import { useSession } from "next-auth/react";
 import { Button } from "@/ui/button";
 import { toast } from "react-toastify";
-import { Mail, Shield, CheckCircle, AlertCircle, Lock, Eye, EyeOff } from "lucide-react";
+import {
+  Mail,
+  Shield,
+  CheckCircle,
+  AlertCircle,
+  Lock,
+  Eye,
+  EyeOff,
+} from "lucide-react";
 
 export default function SecuritySettingsPage() {
   const { data: session } = useSession();
@@ -19,7 +27,9 @@ export default function SecuritySettingsPage() {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [verificationMethod, setVerificationMethod] = useState<"code" | "link">("code");
+  const [verificationMethod, setVerificationMethod] = useState<"code" | "link">(
+    "code",
+  );
   const [twoFactorQr, setTwoFactorQr] = useState("");
   const [twoFactorSecret, setTwoFactorSecret] = useState("");
   const [twoFactorCode, setTwoFactorCode] = useState("");
@@ -38,7 +48,9 @@ export default function SecuritySettingsPage() {
       setTwoFactorSecret(data.secret);
       setTwoFactorCode("");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "No se pudo iniciar 2FA");
+      toast.error(
+        error instanceof Error ? error.message : "No se pudo iniciar 2FA",
+      );
     } finally {
       setIsConfiguringTwoFactor(false);
     }
@@ -63,7 +75,9 @@ export default function SecuritySettingsPage() {
       setTwoFactorSecret("");
       setTwoFactorCode("");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "No se pudo habilitar 2FA");
+      toast.error(
+        error instanceof Error ? error.message : "No se pudo habilitar 2FA",
+      );
     } finally {
       setIsConfiguringTwoFactor(false);
     }
@@ -177,9 +191,9 @@ export default function SecuritySettingsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
+    <div className="wolf-app wolf-product-theme wolf-security min-h-screen bg-zinc-950 py-8 text-zinc-100">
       <div className="max-w-2xl mx-auto px-4">
-        <div className="bg-white rounded-lg shadow-sm p-6">
+        <div className="rounded-lg border border-white/10 bg-zinc-900 p-6 shadow-xl">
           <div className="flex items-center mb-6">
             <Shield className="h-6 w-6 text-blue-600 mr-3" />
             <h1 className="text-2xl font-bold text-gray-900">
@@ -195,7 +209,8 @@ export default function SecuritySettingsPage() {
                 <>
                   <CheckCircle className="h-5 w-5 text-green-500 mr-2" />
                   <span className="text-green-700">
-                    Tu cuenta usa email como nombre de usuario: {currentUsername}
+                    Tu cuenta usa email como nombre de usuario:{" "}
+                    {currentUsername}
                   </span>
                 </>
               ) : (
@@ -269,7 +284,11 @@ export default function SecuritySettingsPage() {
                   onClick={() => setShowPassword((value) => !value)}
                   className="flex items-center justify-center gap-2"
                 >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  {showPassword ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
                   {showPassword ? "Ocultar" : "Mostrar"}
                 </Button>
               </div>
@@ -279,10 +298,13 @@ export default function SecuritySettingsPage() {
           <div className="mb-8 rounded-lg border p-4">
             <div className="mb-4 flex items-center">
               <Shield className="mr-2 h-5 w-5 text-yellow-600" />
-              <h2 className="text-lg font-semibold">Autenticación en dos pasos</h2>
+              <h2 className="text-lg font-semibold">
+                Autenticación en dos pasos
+              </h2>
             </div>
             <p className="mb-4 text-sm text-gray-600">
-              Protege tu cuenta con una app compatible con códigos TOTP, como Google Authenticator o Authy.
+              Protege tu cuenta con una app compatible con códigos TOTP, como
+              Google Authenticator o Authy.
             </p>
 
             {!twoFactorQr ? (
@@ -308,13 +330,20 @@ export default function SecuritySettingsPage() {
                   <p className="break-all text-xs text-gray-600">
                     Clave manual: <strong>{twoFactorSecret}</strong>
                   </p>
-                  <label className="block text-sm font-medium text-gray-700" htmlFor="two-factor-code">
+                  <label
+                    className="block text-sm font-medium text-gray-700"
+                    htmlFor="two-factor-code"
+                  >
                     Código de verificación
                   </label>
                   <input
                     id="two-factor-code"
                     value={twoFactorCode}
-                    onChange={(event) => setTwoFactorCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                    onChange={(event) =>
+                      setTwoFactorCode(
+                        event.target.value.replace(/\D/g, "").slice(0, 6),
+                      )
+                    }
                     inputMode="numeric"
                     autoComplete="one-time-code"
                     className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-yellow-500"
@@ -327,7 +356,9 @@ export default function SecuritySettingsPage() {
                       disabled={isConfiguringTwoFactor}
                       className="bg-yellow-500 text-black hover:bg-yellow-600"
                     >
-                      {isConfiguringTwoFactor ? "Verificando..." : "Confirmar 2FA"}
+                      {isConfiguringTwoFactor
+                        ? "Verificando..."
+                        : "Confirmar 2FA"}
                     </Button>
                     <Button
                       type="button"
@@ -386,7 +417,9 @@ export default function SecuritySettingsPage() {
                       name="verificationMethod"
                       value="code"
                       checked={verificationMethod === "code"}
-                      onChange={(e) => setVerificationMethod(e.target.value as "code")}
+                      onChange={(e) =>
+                        setVerificationMethod(e.target.value as "code")
+                      }
                       className="mr-2"
                     />
                     <span>Código de verificación por email</span>
@@ -397,7 +430,9 @@ export default function SecuritySettingsPage() {
                       name="verificationMethod"
                       value="link"
                       checked={verificationMethod === "link"}
-                      onChange={(e) => setVerificationMethod(e.target.value as "link")}
+                      onChange={(e) =>
+                        setVerificationMethod(e.target.value as "link")
+                      }
                       className="mr-2"
                     />
                     <span>Link de verificación por email</span>
@@ -427,7 +462,9 @@ export default function SecuritySettingsPage() {
                   disabled={isLoading || !email}
                   className="w-full bg-blue-600 hover:bg-blue-700 text-white"
                 >
-                  {isLoading ? "Enviando..." : `Enviar ${verificationMethod === "code" ? "Código" : "Link"} de Verificación`}
+                  {isLoading
+                    ? "Enviando..."
+                    : `Enviar ${verificationMethod === "code" ? "Código" : "Link"} de Verificación`}
                 </Button>
               )}
 
@@ -436,8 +473,8 @@ export default function SecuritySettingsPage() {
                 <div className="space-y-4">
                   <div className="bg-green-50 border border-green-200 rounded-md p-4">
                     <p className="text-green-800 text-sm">
-                      Se ha enviado un código de verificación a {email}. 
-                      Revisa tu bandeja de entrada y spam.
+                      Se ha enviado un código de verificación a {email}. Revisa
+                      tu bandeja de entrada y spam.
                     </p>
                   </div>
 
@@ -481,9 +518,9 @@ export default function SecuritySettingsPage() {
               {isEmailSent && verificationMethod === "link" && (
                 <div className="bg-green-50 border border-green-200 rounded-md p-4">
                   <p className="text-green-800 text-sm">
-                    Se ha enviado un link de verificación a {email}. 
-                    Haz clic en el enlace para completar la verificación.
-                    Revisa tu bandeja de entrada y spam.
+                    Se ha enviado un link de verificación a {email}. Haz clic en
+                    el enlace para completar la verificación. Revisa tu bandeja
+                    de entrada y spam.
                   </p>
                   <Button
                     onClick={() => {
@@ -507,8 +544,9 @@ export default function SecuritySettingsPage() {
                 ¡Tu cuenta está segura!
               </h2>
               <p className="text-gray-600">
-                Ya estás usando tu email como nombre de usuario, lo que proporciona 
-                mayor seguridad y facilita la recuperación de contraseña.
+                Ya estás usando tu email como nombre de usuario, lo que
+                proporciona mayor seguridad y facilita la recuperación de
+                contraseña.
               </p>
             </div>
           )}

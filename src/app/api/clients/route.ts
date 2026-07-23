@@ -12,9 +12,18 @@ const PlanSchema = z.string().trim().min(1).max(80);
 
 const ProfileSchema = z.object({
   plan: PlanSchema,
-  startDate: z.preprocess((v) => (v === "" ? null : v ?? null), z.string().nullable()),
-  endDate: z.preprocess((v) => (v === "" ? null : v ?? null), z.string().nullable()),
-  emergencyPhone: z.preprocess((v) => (v === "" ? null : v ?? null), z.string().nullable()),
+  startDate: z.preprocess(
+    (v) => (v === "" ? null : (v ?? null)),
+    z.string().nullable(),
+  ),
+  endDate: z.preprocess(
+    (v) => (v === "" ? null : (v ?? null)),
+    z.string().nullable(),
+  ),
+  emergencyPhone: z.preprocess(
+    (v) => (v === "" ? null : (v ?? null)),
+    z.string().nullable(),
+  ),
   address: z.string().default(""),
   social: z.string().default(""),
   documentNumber: z.string().optional().default(""),
@@ -33,7 +42,10 @@ const BodySchema = z.object({
 
 /* ========= GET ========= */
 export async function GET(request: NextRequest) {
-  const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
+  const token = await getToken({
+    req: request,
+    secret: process.env.NEXTAUTH_SECRET,
+  });
   if (!token || token.role !== "admin") {
     return NextResponse.json({ message: "No autorizado" }, { status: 401 });
   }
@@ -61,6 +73,10 @@ export async function GET(request: NextRequest) {
             username: true,
             createdAt: true,
             fingerprints: { select: { id: true }, take: 1 },
+            attendances: {
+              select: { checkInTime: true, channel: true },
+              orderBy: { checkInTime: "desc" },
+            },
           },
         },
       },
@@ -68,13 +84,19 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(clients, { status: 200 });
   } catch (err) {
     console.error("GET /api/clients error:", err);
-    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Error interno del servidor" },
+      { status: 500 },
+    );
   }
 }
 
 /* ========= POST ========= */
 export async function POST(request: NextRequest) {
-  const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
+  const token = await getToken({
+    req: request,
+    secret: process.env.NEXTAUTH_SECRET,
+  });
   if (!token || token.role !== "admin") {
     return NextResponse.json({ message: "No autorizado" }, { status: 401 });
   }
@@ -83,7 +105,11 @@ export async function POST(request: NextRequest) {
     const raw = await request.json();
 
     // Normaliza entrada plana o anidada
-    const isNested = raw && typeof raw === "object" && raw.profile && typeof raw.profile === "object";
+    const isNested =
+      raw &&
+      typeof raw === "object" &&
+      raw.profile &&
+      typeof raw.profile === "object";
     const username = raw?.username ?? raw?.userName ?? "";
     const password = raw?.password ?? ""; // puede venir vacío
     const firstName = raw?.firstName ?? raw?.profile_first_name ?? "";
@@ -125,42 +151,80 @@ export async function POST(request: NextRequest) {
       lastName,
       profile: { ...baseProfile, plan },
     });
-    const documentNumber = String(body.profile.documentNumber || "").replace(/\D/g, "");
+    const documentNumber = String(body.profile.documentNumber || "").replace(
+      /\D/g,
+      "",
+    );
     if (documentNumber && documentNumber.length !== 8) {
-      return NextResponse.json({ error: "El DNI debe tener 8 dígitos" }, { status: 400 });
+      return NextResponse.json(
+        { error: "El DNI debe tener 8 dígitos" },
+        { status: 400 },
+      );
     }
 
     // Normaliza teléfonos a E.164 (PE)
     const main = parsePhoneNumberFromString(body.phoneNumber, "PE");
     if (!main?.isValid()) {
-      return NextResponse.json({ error: "El teléfono principal no es válido" }, { status: 400 });
+      return NextResponse.json(
+        { error: "El teléfono principal no es válido" },
+        { status: 400 },
+      );
     }
     const phoneE164 = main.number;
 
     let emergencyE164: string | null = null;
     if (body.profile.emergencyPhone) {
-      const emerg = parsePhoneNumberFromString(body.profile.emergencyPhone, "PE");
+      const emerg = parsePhoneNumberFromString(
+        body.profile.emergencyPhone,
+        "PE",
+      );
       if (emerg && !emerg.isValid()) {
-        return NextResponse.json({ error: "El teléfono de emergencia no es válido" }, { status: 400 });
+        return NextResponse.json(
+          { error: "El teléfono de emergencia no es válido" },
+          { status: 400 },
+        );
       }
       emergencyE164 = emerg ? emerg.number : null;
     }
 
     // Unicidad
     const [uByUsername, uByPhone, profileByDocument] = await Promise.all([
-      prisma.user.findUnique({ where: { username: body.username }, select: { id: true } }),
-      prisma.user.findUnique({ where: { phoneNumber: phoneE164 }, select: { id: true } }),
+      prisma.user.findUnique({
+        where: { username: body.username },
+        select: { id: true },
+      }),
+      prisma.user.findUnique({
+        where: { phoneNumber: phoneE164 },
+        select: { id: true },
+      }),
       documentNumber
-        ? prisma.clientProfile.findFirst({ where: { documentNumber }, select: { profile_id: true } })
+        ? prisma.clientProfile.findFirst({
+            where: { documentNumber },
+            select: { profile_id: true },
+          })
         : Promise.resolve(null),
     ]);
-    if (uByUsername) return NextResponse.json({ error: "El usuario ya está registrado" }, { status: 400 });
-    if (uByPhone) return NextResponse.json({ error: "El teléfono ya está registrado" }, { status: 400 });
-    if (profileByDocument) return NextResponse.json({ error: "El DNI ya está registrado" }, { status: 400 });
+    if (uByUsername)
+      return NextResponse.json(
+        { error: "El usuario ya está registrado" },
+        { status: 400 },
+      );
+    if (uByPhone)
+      return NextResponse.json(
+        { error: "El teléfono ya está registrado" },
+        { status: 400 },
+      );
+    if (profileByDocument)
+      return NextResponse.json(
+        { error: "El DNI ya está registrado" },
+        { status: 400 },
+      );
 
     // Password: usa la enviada si viene y es >= 6; si no, genera una
     const finalRawPassword =
-      body.password && body.password.length >= 6 ? body.password : crypto.randomBytes(6).toString("hex");
+      body.password && body.password.length >= 6
+        ? body.password
+        : crypto.randomBytes(6).toString("hex");
     const hashed = await bcrypt.hash(finalRawPassword, 10);
 
     // Transacción
@@ -182,8 +246,12 @@ export async function POST(request: NextRequest) {
           profile_first_name: body.firstName,
           profile_last_name: body.lastName,
           profile_plan: body.profile.plan,
-          profile_start_date: body.profile.startDate ? new Date(body.profile.startDate) : null,
-          profile_end_date: body.profile.endDate ? new Date(body.profile.endDate) : null,
+          profile_start_date: body.profile.startDate
+            ? new Date(body.profile.startDate)
+            : null,
+          profile_end_date: body.profile.endDate
+            ? new Date(body.profile.endDate)
+            : null,
           profile_phone: phoneE164,
           profile_emergency_phone: emergencyE164,
           profile_address: body.profile.address ?? "",
@@ -203,23 +271,33 @@ export async function POST(request: NextRequest) {
         userId: result.user.id,
         profileId: result.profile.profile_id,
       },
-      { status: 201 }
+      { status: 201 },
     );
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (err instanceof ZodError) {
       console.error("Zod error /api/clients:", JSON.stringify(err.issues));
-      return NextResponse.json({ error: "Datos inválidos", details: err.issues }, { status: 400 });
+      return NextResponse.json(
+        { error: "Datos inválidos", details: err.issues },
+        { status: 400 },
+      );
     }
-    if (err?.code === "P2002") {
-      const t = Array.isArray(err?.meta?.target) ? (err.meta.target as string[]).join(",") : String(err?.meta?.target || "");
+    const prismaError = err as { code?: string; meta?: { target?: unknown } };
+    if (prismaError?.code === "P2002") {
+      const target = prismaError.meta?.target;
+      const t = Array.isArray(target)
+        ? target.map(String).join(",")
+        : String(target || "");
       const msg = t.includes("username")
         ? "El usuario ya está registrado"
         : t.includes("phoneNumber")
-        ? "El teléfono ya está registrado"
-        : "Registro duplicado";
+          ? "El teléfono ya está registrado"
+          : "Registro duplicado";
       return NextResponse.json({ error: msg }, { status: 400 });
     }
     console.error("POST /api/clients error:", err);
-    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Error interno del servidor" },
+      { status: 500 },
+    );
   }
 }

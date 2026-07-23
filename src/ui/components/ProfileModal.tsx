@@ -13,7 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/ui/dialog";
-import { Phone, Lock, Camera, IdCard } from "lucide-react";
+import { Camera, Lock } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import "react-toastify/dist/ReactToastify.css";
@@ -82,12 +82,12 @@ export default function ProfileModal({
 
   function validateFields() {
     if (!username.trim() || !firstNameLocal.trim() || !lastName.trim() || !phone.trim()) {
-      toast.error("❌ Faltan campos (usuario, nombre, apellidos, teléfono).");
+      toast.error("Faltan campos: usuario, nombre, apellidos o teléfono.");
       return false;
     }
     const dni = documentNumber.replace(/\D/g, "");
     if (dni && dni.length !== 8) {
-      toast.error("❌ El DNI debe tener 8 dígitos.");
+      toast.error("El DNI debe tener 8 dígitos.");
       return false;
     }
     return true;
@@ -100,13 +100,13 @@ export default function ProfileModal({
     // Validar tipo de archivo
     const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
     if (!allowedTypes.includes(file.type)) {
-      toast.error("❌ Tipo de archivo no permitido. Solo JPG, PNG y WEBP.");
+      toast.error("Tipo de archivo no permitido. Solo JPG, PNG y WEBP.");
       return;
     }
 
     // Validar tamaño (5MB máximo)
     if (file.size > 5 * 1024 * 1024) {
-      toast.error("❌ El archivo es demasiado grande. Máximo 5MB.");
+      toast.error("El archivo es demasiado grande. Máximo 5 MB.");
       return;
     }
 
@@ -152,7 +152,7 @@ export default function ProfileModal({
         // Continuar aunque falle la actualización de sesión
       }
       
-      toast.success("✅ Imagen de perfil actualizada correctamente");
+      toast.success("Imagen de perfil actualizada correctamente");
       
       // Recargar la información si hay callback
       if (onSuccess) {
@@ -160,7 +160,7 @@ export default function ProfileModal({
       }
     } catch (error) {
       console.error("Error al subir imagen:", error);
-      toast.error("❌ Error al subir la imagen de perfil");
+      toast.error("Error al subir la imagen de perfil");
       // Revertir a la imagen anterior en caso de error
       setCurrentProfileImage(profileImage || null);
     } finally {
@@ -208,7 +208,7 @@ export default function ProfileModal({
         throw new Error(data.error || "Error al actualizar los datos");
       }
 
-      toast.success("✅ Datos actualizados correctamente 🎉");
+      toast.success("Datos actualizados correctamente");
       onClose();
 
       // Recargar la lista o info
@@ -217,7 +217,7 @@ export default function ProfileModal({
       }
     } catch (error) {
       console.error(error);
-      toast.error("❌ Error al actualizar los datos.");
+      toast.error("Error al actualizar los datos.");
     } finally {
       setIsSubmitting(false);
     }
@@ -227,10 +227,10 @@ export default function ProfileModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-h-[92vh] max-w-lg overflow-y-auto border border-wolf-border bg-white text-wolf-ink shadow-2xl">
+      <DialogContent className="wolf-product-theme max-h-[92dvh] max-w-lg overflow-y-auto border border-[var(--wolf-app-border)] !bg-[var(--wolf-app-surface)] text-[var(--wolf-app-text)] shadow-2xl">
         <DialogHeader>
-          <DialogTitle className="text-wolf-ink">Editar perfil</DialogTitle>
-          <DialogDescription className="text-wolf-subtle">
+          <DialogTitle className="text-[var(--wolf-app-text)]">Editar perfil</DialogTitle>
+          <DialogDescription className="text-[var(--wolf-app-muted)]">
             Gestiona tu información personal.
           </DialogDescription>
         </DialogHeader>
@@ -238,17 +238,16 @@ export default function ProfileModal({
         <div className="flex items-center gap-4">
           {/* Avatar */}
           <div className="relative">
-            <div className="w-24 h-24 border-2 border-wolf-primary rounded-full overflow-hidden bg-wolf-primary flex items-center justify-center">
+            <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full border-2 border-[var(--wolf-app-accent)] bg-[var(--wolf-app-accent)] sm:h-24 sm:w-24">
               {currentProfileImage ? (
-                <img 
-                  src={currentProfileImage} 
-                  alt="Imagen de perfil"
-                  className="w-full h-full object-cover"
-                  onLoad={() => console.log("🖼️ Imagen cargada correctamente")}
-                  onError={() => console.log("❌ Error cargando imagen:", currentProfileImage)}
+                <div
+                  className="h-full w-full bg-cover bg-center"
+                  style={{ backgroundImage: `url(${currentProfileImage})` }}
+                  role="img"
+                  aria-label="Imagen de perfil"
                 />
               ) : (
-                <div className="bg-yellow-400 text-black text-xl font-bold">
+                <div className="text-xl font-bold text-[var(--wolf-app-bg)]">
                   {firstNameLocal.charAt(0).toUpperCase() || "U"}
                   {lastName.charAt(0).toUpperCase() || "N"}
                 </div>
@@ -256,12 +255,12 @@ export default function ProfileModal({
             </div>
             <Button
               size="icon"
-              className="absolute bottom-0 right-0 rounded-full bg-wolf-primary text-wolf-ink hover:bg-yellow-300 disabled:opacity-50"
+              className="absolute bottom-0 right-0 rounded-full bg-[var(--wolf-app-accent)] text-[var(--wolf-app-bg)] hover:bg-[var(--wolf-app-accent-hover)] disabled:opacity-50"
               onClick={handleCameraClick}
               disabled={isUploadingImage}
             >
               {isUploadingImage ? (
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-wolf-ink"></div>
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--wolf-app-bg)] border-r-transparent"></div>
               ) : (
                 <Camera className="h-4 w-4" />
               )}
@@ -277,10 +276,10 @@ export default function ProfileModal({
 
           {/* Nombre y rol */}
           <div>
-            <h1 className="text-2xl font-bold text-wolf-ink">
+            <h1 className="text-xl font-bold text-[var(--wolf-app-text)] sm:text-2xl">
               {firstNameLocal} {lastName}
             </h1>
-            <p className="text-wolf-subtle">{userRole || "Usuario"}</p>
+            <p className="text-[var(--wolf-app-muted)]">{userRole || "Usuario"}</p>
           </div>
         </div>
 
@@ -288,73 +287,67 @@ export default function ProfileModal({
         <div className="space-y-4 mt-4">
           {/* Nombre de Usuario */}
           <div className="space-y-2">
-            <Label htmlFor="username" className="text-wolf-ink">Usuario</Label>
+            <Label htmlFor="username" className="text-[var(--wolf-app-muted)]">Usuario</Label>
             <Input
               id="username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="border border-wolf-border bg-white text-wolf-ink"
+              className="wolf-control"
             />
           </div>
 
           {/* Nombre real */}
           <div className="space-y-2">
-            <Label htmlFor="firstName" className="text-wolf-ink">Nombre</Label>
+            <Label htmlFor="firstName" className="text-[var(--wolf-app-muted)]">Nombre</Label>
             <Input
               id="firstName"
               value={firstNameLocal}
               onChange={(e) => setFirstNameLocal(e.target.value)}
-              className="border border-wolf-border bg-white text-wolf-ink"
+              className="wolf-control"
             />
           </div>
 
           {/* Apellidos */}
           <div className="space-y-2">
-            <Label htmlFor="lastName" className="text-wolf-ink">Apellidos</Label>
+            <Label htmlFor="lastName" className="text-[var(--wolf-app-muted)]">Apellidos</Label>
             <Input
               id="lastName"
               value={lastName}
               onChange={(e) => setLastName(e.target.value)}
-              className="border border-wolf-border bg-white text-wolf-ink"
+              className="wolf-control"
             />
           </div>
 
           {/* Teléfono principal */}
           <div className="space-y-2">
-            <Label htmlFor="phone" className="text-wolf-ink">Teléfono</Label>
-            <div className="flex gap-2">
+            <Label htmlFor="phone" className="text-[var(--wolf-app-muted)]">Teléfono</Label>
+            <div>
               <Input
                 id="phone"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
-                className="border border-wolf-border bg-white text-wolf-ink"
+                className="wolf-control"
               />
-              <Button size="icon" variant="outline" className="shrink-0 !border-wolf-border !bg-white !text-wolf-primary-strong hover:!bg-wolf-muted">
-                <Phone className="h-4 w-4" />
-              </Button>
             </div>
           </div>
 
           {/* Teléfono de emergencia */}
           <div className="space-y-2">
-            <Label htmlFor="emergencyPhone" className="text-wolf-ink">Teléfono de emergencia</Label>
-            <div className="flex gap-2">
+            <Label htmlFor="emergencyPhone" className="text-[var(--wolf-app-muted)]">Teléfono de emergencia</Label>
+            <div>
               <Input
                 id="emergencyPhone"
                 value={emergencyPhone}
                 onChange={(e) => setEmergencyPhone(e.target.value)}
-                className="border border-wolf-border bg-white text-wolf-ink"
+                className="wolf-control"
               />
-              <Button size="icon" variant="outline" className="shrink-0 !border-wolf-border !bg-white !text-wolf-primary-strong hover:!bg-wolf-muted">
-                <Phone className="h-4 w-4" />
-              </Button>
             </div>
           </div>
 
           {/* DNI */}
           <div className="space-y-2">
-            <Label htmlFor="documentNumber" className="text-wolf-ink">DNI</Label>
-            <div className="flex gap-2">
+            <Label htmlFor="documentNumber" className="text-[var(--wolf-app-muted)]">DNI</Label>
+            <div>
               <Input
                 id="documentNumber"
                 value={documentNumber}
@@ -362,17 +355,14 @@ export default function ProfileModal({
                   setDocumentNumber(e.target.value.replace(/\D/g, "").slice(0, 8))
                 }
                 placeholder="8 dígitos"
-                className="border border-wolf-border bg-white text-wolf-ink"
+                className="wolf-control"
               />
-              <Button size="icon" variant="outline" className="shrink-0 !border-wolf-border !bg-white !text-wolf-primary-strong hover:!bg-wolf-muted">
-                <IdCard className="h-4 w-4" />
-              </Button>
             </div>
           </div>
 
           {/* Botón guardar */}
           <Button
-            className="w-full bg-wolf-primary font-semibold text-wolf-ink hover:bg-yellow-300"
+            className="wolf-button wolf-button-primary w-full"
             onClick={handleSubmit}
             disabled={isSubmitting}
           >
@@ -381,7 +371,7 @@ export default function ProfileModal({
 
           {/* Cambiar contraseña */}
           <Button
-            className="w-full bg-slate-900 text-white hover:bg-slate-800"
+            className="wolf-button w-full"
             onClick={() => {
               onClose();
               router.push("/profile/security");
@@ -393,7 +383,8 @@ export default function ProfileModal({
 
           {/* Cerrar sesión */}
           <Button
-            className="w-full bg-red-500 text-white hover:bg-red-600"
+            variant="destructive"
+            className="w-full rounded-lg"
             onClick={() => signOut()}
           >
             Cerrar sesión

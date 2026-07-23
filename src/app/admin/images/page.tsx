@@ -13,6 +13,7 @@ import {
   Copy,
   Check,
   Lock,
+  ShieldCheck,
 } from "lucide-react";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -66,12 +67,27 @@ export default function ImagesAdmin() {
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
   const [isPublic, setIsPublic] = useState<boolean>(false);
   const [permissionLoading, setPermissionLoading] = useState(false);
+  const [accessVerified, setAccessVerified] = useState(false);
+  const [accessChecking, setAccessChecking] = useState(true);
+  const [accessPassword, setAccessPassword] = useState("");
+  const [accessError, setAccessError] = useState("");
+  const [accessSubmitting, setAccessSubmitting] = useState(false);
 
   useEffect(() => {
     if (status === "loading") return;
     if (!session || session.user?.role !== "admin") {
       router.push("/");
+      return;
     }
+    fetch("/api/admin/sensitive-access", {
+      credentials: "include",
+      cache: "no-store",
+    })
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({ verified: false }));
+        setAccessVerified(response.ok && Boolean(data.verified));
+      })
+      .finally(() => setAccessChecking(false));
   }, [session, status, router]);
 
   const fetchImages = async () => {
@@ -81,6 +97,10 @@ export default function ImagesAdmin() {
         credentials: "include",
         cache: "no-store",
       });
+      if (response.status === 428) {
+        setAccessVerified(false);
+        return;
+      }
       if (!response.ok) throw new Error("Error al cargar imágenes");
       const data = await response.json();
       setImages(data.images || []);
@@ -99,14 +119,13 @@ export default function ImagesAdmin() {
         credentials: "include",
         cache: "no-store",
       });
+      if (response.status === 428) {
+        setAccessVerified(false);
+        return;
+      }
       if (response.ok) {
         const data = await response.json();
-        setIsPublic(
-          data.policy?.Statement?.some(
-            (stmt: { Effect: string; Principal: string }) =>
-              stmt.Effect === "Allow" && stmt.Principal === "*",
-          ) || false,
-        );
+        setIsPublic(Boolean(data.isPublic));
       }
     } catch (error) {
       console.error("Error verificando permisos:", error);
@@ -114,9 +133,37 @@ export default function ImagesAdmin() {
   };
 
   useEffect(() => {
+    if (!accessVerified) return;
     fetchImages();
     checkBucketPermissions();
-  }, []);
+  }, [accessVerified]);
+
+  const verifySensitiveAccess = async (
+    event: React.FormEvent<HTMLFormElement>,
+  ) => {
+    event.preventDefault();
+    setAccessSubmitting(true);
+    setAccessError("");
+    try {
+      const response = await fetch("/api/admin/sensitive-access", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ password: accessPassword }),
+      });
+      const data = await response.json();
+      if (!response.ok)
+        throw new Error(data.error || "No se pudo verificar el acceso");
+      setAccessPassword("");
+      setAccessVerified(true);
+    } catch (error) {
+      setAccessError(
+        error instanceof Error ? error.message : "Verificación inválida",
+      );
+    } finally {
+      setAccessSubmitting(false);
+    }
+  };
 
   const updateBucketPermissions = async (makePublic: boolean) => {
     setPermissionLoading(true);
@@ -124,7 +171,9 @@ export default function ImagesAdmin() {
       const response = await fetch("/api/admin/s3-permissions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: makePublic ? "make-public" : "make-private" }),
+        body: JSON.stringify({
+          action: makePublic ? "make-public" : "make-private",
+        }),
         credentials: "include",
       });
       const data = await response.json();
@@ -144,8 +193,11 @@ export default function ImagesAdmin() {
   };
 
   const filteredImages = images.filter((img) => {
-    const matchesSearch = img.key.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesFolder = selectedFolder === "all" || img.folder === selectedFolder;
+    const matchesSearch = img.key
+      .toLowerCase()
+      .includes(searchTerm.toLowerCase());
+    const matchesFolder =
+      selectedFolder === "all" || img.folder === selectedFolder;
     return matchesSearch && matchesFolder;
   });
 
@@ -178,7 +230,7 @@ export default function ImagesAdmin() {
     }
   };
 
-  if (status === "loading") {
+  if (status === "loading" || accessChecking) {
     return (
       <div
         style={{
@@ -211,6 +263,66 @@ export default function ImagesAdmin() {
       >
         No autorizado
       </div>
+    );
+  }
+
+  if (!accessVerified) {
+    return (
+      <main className="wolf-app wolf-product-theme grid min-h-screen place-items-center bg-zinc-950 p-4 text-zinc-100">
+        <form
+          onSubmit={verifySensitiveAccess}
+          className="w-full max-w-md rounded-lg border border-white/10 bg-zinc-900 p-6 shadow-2xl"
+        >
+          <div className="mb-6 flex h-12 w-12 items-center justify-center rounded-md border border-yellow-400/30 bg-yellow-400/10 text-yellow-400">
+            <ShieldCheck className="h-6 w-6" />
+          </div>
+          <p className="mb-2 text-xs font-bold uppercase text-yellow-400">
+            Acceso sensible
+          </p>
+          <h1 className="mb-2 text-2xl font-bold text-white">
+            Verifica tu identidad
+          </h1>
+          <p className="mb-6 text-sm leading-6 text-zinc-400">
+            Las imágenes incluyen claves internas y accesos temporales a AWS.
+            Confirma tu contraseña de administrador para continuar durante 10
+            minutos.
+          </p>
+          <label
+            className="mb-2 block text-sm font-medium text-zinc-300"
+            htmlFor="sensitive-password"
+          >
+            Contraseña actual
+          </label>
+          <input
+            id="sensitive-password"
+            type="password"
+            autoComplete="current-password"
+            value={accessPassword}
+            onChange={(event) => setAccessPassword(event.target.value)}
+            className="wolf-control px-3"
+            autoFocus
+          />
+          {accessError ? (
+            <p className="mt-3 text-sm text-red-300">{accessError}</p>
+          ) : null}
+          <div className="mt-6 flex gap-3">
+            <button
+              type="button"
+              onClick={() => router.push("/admin/dashboard")}
+              className="wolf-button flex-1"
+            >
+              Volver
+            </button>
+            <button
+              type="submit"
+              disabled={!accessPassword || accessSubmitting}
+              className="wolf-button wolf-button-primary flex-1 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {accessSubmitting ? "Verificando..." : "Verificar"}
+            </button>
+          </div>
+        </form>
+      </main>
     );
   }
 
@@ -293,13 +405,26 @@ export default function ImagesAdmin() {
               fontFamily: "'Inter', system-ui, sans-serif",
             }}
           >
-            <RefreshCw style={{ width: 14, height: 14, animation: loading ? "spin 1s linear infinite" : "none" }} />
+            <RefreshCw
+              style={{
+                width: 14,
+                height: 14,
+                animation: loading ? "spin 1s linear infinite" : "none",
+              }}
+            />
             Actualizar
           </button>
         </div>
       </div>
 
-      <div style={{ padding: "24px 32px", display: "flex", flexDirection: "column", gap: 16 }}>
+      <div
+        style={{
+          padding: "24px 32px",
+          display: "flex",
+          flexDirection: "column",
+          gap: 16,
+        }}
+      >
         {/* Bucket permissions card */}
         <div
           style={{
@@ -316,7 +441,9 @@ export default function ImagesAdmin() {
               width: 44,
               height: 44,
               borderRadius: 10,
-              background: isPublic ? "rgba(46,189,117,0.12)" : "rgba(229,72,77,0.12)",
+              background: isPublic
+                ? "rgba(46,189,117,0.12)"
+                : "rgba(229,72,77,0.12)",
               color: isPublic ? "#2EBD75" : "#E5484D",
               display: "flex",
               alignItems: "center",
@@ -327,7 +454,9 @@ export default function ImagesAdmin() {
             <Lock style={{ width: 20, height: 20 }} />
           </div>
           <div style={{ flex: 1, minWidth: 200 }}>
-            <p style={{ ...eyebrow, margin: "0 0 4px" }}>Permisos del bucket S3</p>
+            <p style={{ ...eyebrow, margin: "0 0 4px" }}>
+              Permisos del bucket S3
+            </p>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <span
                 style={{
@@ -342,7 +471,9 @@ export default function ImagesAdmin() {
               <span
                 style={{
                   padding: "2px 10px",
-                  background: isPublic ? "rgba(46,189,117,0.12)" : "rgba(229,72,77,0.12)",
+                  background: isPublic
+                    ? "rgba(46,189,117,0.12)"
+                    : "rgba(229,72,77,0.12)",
                   border: `1px solid ${isPublic ? "rgba(46,189,117,0.4)" : "rgba(229,72,77,0.4)"}`,
                   borderRadius: 999,
                   fontSize: 11,
@@ -355,7 +486,13 @@ export default function ImagesAdmin() {
                 {isPublic ? "PÚBLICO" : "PRIVADO"}
               </span>
             </div>
-            <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", margin: "4px 0 0" }}>
+            <p
+              style={{
+                fontSize: 12,
+                color: "rgba(255,255,255,0.4)",
+                margin: "4px 0 0",
+              }}
+            >
               {isPublic
                 ? "Las imágenes son accesibles públicamente y se mostrarán correctamente."
                 : "Las imágenes son privadas y pueden no mostrarse en el navegador."}
@@ -378,12 +515,17 @@ export default function ImagesAdmin() {
                 color: "#2EBD75",
                 fontSize: 13,
                 fontWeight: 600,
-                cursor: permissionLoading || isPublic ? "not-allowed" : "pointer",
+                cursor:
+                  permissionLoading || isPublic ? "not-allowed" : "pointer",
                 opacity: permissionLoading || isPublic ? 0.5 : 1,
                 fontFamily: "'Inter', system-ui, sans-serif",
               }}
             >
-              {permissionLoading ? <RefreshCw style={{ width: 12, height: 12 }} /> : <Check style={{ width: 12, height: 12 }} />}
+              {permissionLoading ? (
+                <RefreshCw style={{ width: 12, height: 12 }} />
+              ) : (
+                <Check style={{ width: 12, height: 12 }} />
+              )}
               Hacer público
             </button>
             <button
@@ -402,7 +544,8 @@ export default function ImagesAdmin() {
                 color: "#E5484D",
                 fontSize: 13,
                 fontWeight: 600,
-                cursor: permissionLoading || !isPublic ? "not-allowed" : "pointer",
+                cursor:
+                  permissionLoading || !isPublic ? "not-allowed" : "pointer",
                 opacity: permissionLoading || !isPublic ? 0.5 : 1,
                 fontFamily: "'Inter', system-ui, sans-serif",
               }}
@@ -449,10 +592,26 @@ export default function ImagesAdmin() {
                   <Folder style={{ width: 20, height: 20 }} />
                 </div>
                 <div style={{ minWidth: 0 }}>
-                  <p style={{ fontSize: 14, fontWeight: 600, color: "#FFC21A", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <p
+                    style={{
+                      fontSize: 14,
+                      fontWeight: 600,
+                      color: "#FFC21A",
+                      margin: 0,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
                     {folder.name === "root" ? "Raíz" : folder.name}
                   </p>
-                  <p style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", margin: "2px 0 0" }}>
+                  <p
+                    style={{
+                      fontSize: 12,
+                      color: "rgba(255,255,255,0.45)",
+                      margin: "2px 0 0",
+                    }}
+                  >
                     {folder.count} archivos · {formatFileSize(folder.totalSize)}
                   </p>
                 </div>
@@ -463,7 +622,14 @@ export default function ImagesAdmin() {
 
         {/* Search and filter */}
         <div style={{ ...card, padding: "14px 16px" }}>
-          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <div
+            style={{
+              display: "flex",
+              gap: 10,
+              alignItems: "center",
+              flexWrap: "wrap",
+            }}
+          >
             <div style={{ position: "relative", flex: 1, minWidth: 200 }}>
               <Search
                 style={{
@@ -505,10 +671,17 @@ export default function ImagesAdmin() {
                 style={{
                   height: 36,
                   padding: "0 14px",
-                  background: selectedFolder === "all" ? "#FFC21A" : "transparent",
-                  border: selectedFolder === "all" ? "1px solid #FFC21A" : "1px solid rgba(255,255,255,0.15)",
+                  background:
+                    selectedFolder === "all" ? "#FFC21A" : "transparent",
+                  border:
+                    selectedFolder === "all"
+                      ? "1px solid #FFC21A"
+                      : "1px solid rgba(255,255,255,0.15)",
                   borderRadius: 8,
-                  color: selectedFolder === "all" ? "#0A0A0A" : "rgba(255,255,255,0.6)",
+                  color:
+                    selectedFolder === "all"
+                      ? "#0A0A0A"
+                      : "rgba(255,255,255,0.6)",
                   fontSize: 13,
                   fontWeight: 600,
                   cursor: "pointer",
@@ -525,10 +698,19 @@ export default function ImagesAdmin() {
                   style={{
                     height: 36,
                     padding: "0 14px",
-                    background: selectedFolder === folder.name ? "#FFC21A" : "transparent",
-                    border: selectedFolder === folder.name ? "1px solid #FFC21A" : "1px solid rgba(255,255,255,0.15)",
+                    background:
+                      selectedFolder === folder.name
+                        ? "#FFC21A"
+                        : "transparent",
+                    border:
+                      selectedFolder === folder.name
+                        ? "1px solid #FFC21A"
+                        : "1px solid rgba(255,255,255,0.15)",
                     borderRadius: 8,
-                    color: selectedFolder === folder.name ? "#0A0A0A" : "rgba(255,255,255,0.6)",
+                    color:
+                      selectedFolder === folder.name
+                        ? "#0A0A0A"
+                        : "rgba(255,255,255,0.6)",
                     fontSize: 13,
                     fontWeight: 600,
                     cursor: "pointer",
@@ -544,7 +726,14 @@ export default function ImagesAdmin() {
 
         {/* Image grid */}
         <div style={{ ...card, padding: 20 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: 16,
+            }}
+          >
             <h2
               style={{
                 fontFamily: "'Bebas Neue', 'Arial Narrow', sans-serif",
@@ -556,7 +745,9 @@ export default function ImagesAdmin() {
             >
               Imágenes ({filteredImages.length})
             </h2>
-            <span style={{ fontSize: 12, color: "rgba(255,255,255,0.4)" }}>Ordenar: más recientes</span>
+            <span style={{ fontSize: 12, color: "rgba(255,255,255,0.4)" }}>
+              Ordenar: más recientes
+            </span>
           </div>
 
           {loading ? (
@@ -571,14 +762,36 @@ export default function ImagesAdmin() {
                   animation: "spin 1s linear infinite",
                 }}
               />
-              <p style={{ fontSize: 13, color: "rgba(255,255,255,0.45)", margin: 0 }}>Cargando imágenes...</p>
+              <p
+                style={{
+                  fontSize: 13,
+                  color: "rgba(255,255,255,0.45)",
+                  margin: 0,
+                }}
+              >
+                Cargando imágenes...
+              </p>
             </div>
           ) : filteredImages.length === 0 ? (
             <div style={{ textAlign: "center", padding: "48px 0" }}>
               <ImageIcon
-                style={{ width: 40, height: 40, color: "rgba(255,255,255,0.2)", margin: "0 auto 12px", display: "block" }}
+                style={{
+                  width: 40,
+                  height: 40,
+                  color: "rgba(255,255,255,0.2)",
+                  margin: "0 auto 12px",
+                  display: "block",
+                }}
               />
-              <p style={{ fontSize: 13, color: "rgba(255,255,255,0.35)", margin: 0 }}>No se encontraron imágenes.</p>
+              <p
+                style={{
+                  fontSize: 13,
+                  color: "rgba(255,255,255,0.35)",
+                  margin: 0,
+                }}
+              >
+                No se encontraron imágenes.
+              </p>
             </div>
           ) : (
             <div
@@ -599,14 +812,28 @@ export default function ImagesAdmin() {
                   }}
                 >
                   {/* Thumbnail */}
-                  <div style={{ aspectRatio: "1 / 1", position: "relative", background: "#1C1C1C" }}>
+                  <div
+                    style={{
+                      aspectRatio: "1 / 1",
+                      position: "relative",
+                      background: "#1C1C1C",
+                    }}
+                  >
+                    {/* Signed URLs use dynamic hosts and expire quickly, so Next Image cannot predeclare them. */}
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={image.url}
                       alt={image.key}
-                      style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        objectFit: "cover",
+                        display: "block",
+                      }}
                       onError={(e) => {
                         e.currentTarget.style.display = "none";
-                        const sibling = e.currentTarget.nextElementSibling as HTMLElement;
+                        const sibling = e.currentTarget
+                          .nextElementSibling as HTMLElement;
                         if (sibling) sibling.style.display = "flex";
                       }}
                     />
@@ -661,8 +888,15 @@ export default function ImagesAdmin() {
                     >
                       {image.key.split("/").pop()}
                     </p>
-                    <p style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", margin: "0 0 8px" }}>
-                      {formatFileSize(image.size)} · {new Date(image.lastModified).toLocaleDateString("es-PE")}
+                    <p
+                      style={{
+                        fontSize: 10,
+                        color: "rgba(255,255,255,0.4)",
+                        margin: "0 0 8px",
+                      }}
+                    >
+                      {formatFileSize(image.size)} ·{" "}
+                      {new Date(image.lastModified).toLocaleDateString("es-PE")}
                     </p>
                     <div style={{ display: "flex", gap: 4 }}>
                       <button
@@ -697,16 +931,26 @@ export default function ImagesAdmin() {
                           alignItems: "center",
                           justifyContent: "center",
                           gap: 4,
-                          background: copiedUrl === image.url ? "rgba(46,189,117,0.12)" : "transparent",
+                          background:
+                            copiedUrl === image.url
+                              ? "rgba(46,189,117,0.12)"
+                              : "transparent",
                           border: `1px solid ${copiedUrl === image.url ? "rgba(46,189,117,0.4)" : "rgba(255,255,255,0.15)"}`,
                           borderRadius: 6,
-                          color: copiedUrl === image.url ? "#2EBD75" : "rgba(255,255,255,0.6)",
+                          color:
+                            copiedUrl === image.url
+                              ? "#2EBD75"
+                              : "rgba(255,255,255,0.6)",
                           fontSize: 11,
                           cursor: "pointer",
                           fontFamily: "'Inter', system-ui, sans-serif",
                         }}
                       >
-                        {copiedUrl === image.url ? <Check style={{ width: 10, height: 10 }} /> : <Copy style={{ width: 10, height: 10 }} />}
+                        {copiedUrl === image.url ? (
+                          <Check style={{ width: 10, height: 10 }} />
+                        ) : (
+                          <Copy style={{ width: 10, height: 10 }} />
+                        )}
                         Copiar
                       </button>
                       <button

@@ -77,14 +77,14 @@ function EditProductDialog({
     } catch (err: unknown) {
       console.error("Error al guardar los cambios:", err);
       setError(
-        err instanceof Error ? err.message : "Error al actualizar el producto."
+        err instanceof Error ? err.message : "Error al actualizar el producto.",
       );
     }
   };
 
   return (
     <div>
-      <div className="p-6 bg-white rounded-lg shadow-lg w-full max-w-md mx-auto">
+      <div className="wolf-product-theme mx-auto w-full max-w-md rounded-lg border border-white/10 bg-zinc-950 p-6 text-zinc-100 shadow-lg">
         <h2 className="text-lg font-bold text-center text-black mb-4">
           Editar Producto
         </h2>
@@ -95,30 +95,30 @@ function EditProductDialog({
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          className="w-full p-2 mb-4 border rounded bg-white text-black"
+          className="wolf-control mb-4 px-3"
         />
         <textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          className="w-full p-2 mb-4 border rounded bg-white text-black"
+          className="wolf-control mb-4 px-3"
         />
         <input
           type="number"
           value={price}
           onChange={(e) => setPrice(e.target.value)}
-          className="w-full p-2 mb-4 border rounded bg-white text-black"
+          className="wolf-control mb-4 px-3"
         />
         <input
           type="number"
           value={discount}
           onChange={(e) => setDiscount(e.target.value)}
-          className="w-full p-2 mb-4 border rounded bg-white text-black"
+          className="wolf-control mb-4 px-3"
         />
         <input
           type="number"
           value={stock}
           onChange={(e) => setStock(e.target.value)}
-          className="w-full p-2 mb-4 border rounded bg-white text-black"
+          className="wolf-control mb-4 px-3"
         />
         <div className="flex gap-4">
           <Button

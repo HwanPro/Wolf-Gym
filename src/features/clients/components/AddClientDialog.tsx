@@ -56,7 +56,7 @@ export default function AddClientDialog({
 
   const [phone, setPhone] = useState<string | undefined>(undefined);
   const [emergencyPhone, setEmergencyPhone] = useState<string | undefined>(
-    undefined
+    undefined,
   );
 
   const [debt, setDebt] = useState<string>(""); // como texto para input, convertimos al guardar
@@ -64,7 +64,9 @@ export default function AddClientDialog({
   const [errorMessage, setErrorMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const [credentials, setCredentials] = useState<PendingCredential | null>(null);
+  const [credentials, setCredentials] = useState<PendingCredential | null>(
+    null,
+  );
   const normalizePhone = (p?: string) => (p ? p.replace(/\D/g, "") : "");
 
   // ---- helpers ----
@@ -96,7 +98,7 @@ export default function AddClientDialog({
     return Math.max(
       0,
       (Number.isFinite(base) ? base : 0) -
-        (Number.isFinite(usedDays) ? usedDays : 0)
+        (Number.isFinite(usedDays) ? usedDays : 0),
     );
   }, [promoPreset, customDays, usedDays]);
 
@@ -136,7 +138,7 @@ export default function AddClientDialog({
       const end = new Date(membershipEnd);
       if (!(start < end)) {
         setErrorMessage(
-          "La fecha de inicio debe ser anterior a la fecha de fin."
+          "La fecha de inicio debe ser anterior a la fecha de fin.",
         );
         return;
       }
@@ -204,15 +206,13 @@ export default function AddClientDialog({
   return (
     <div className={dialogSurfaceClass}>
       <div className="mb-4">
-        <p className="text-xs font-semibold uppercase tracking-wide text-yellow-600">
+        <p className="text-xs font-semibold uppercase text-yellow-400">
           Nuevo cliente
         </p>
-        <h2 className="text-2xl font-bold text-gray-800">
-          Registro de membresía
-        </h2>
+        <h2 className="text-2xl font-bold text-white">Registro de membresía</h2>
       </div>
       {errorMessage && (
-        <p className="mb-3 rounded-lg border border-orange-300 bg-orange-50 px-3 py-2 text-sm font-medium text-orange-800">
+        <p className="mb-3 rounded-md border border-orange-400/30 bg-orange-400/10 px-3 py-2 text-sm font-medium text-orange-200">
           {errorMessage}
         </p>
       )}
@@ -220,10 +220,20 @@ export default function AddClientDialog({
       <section className={sectionClass}>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Nombres">
-            <input className={fieldClass} placeholder="Nombres" value={name} onChange={(e) => setName(e.target.value)} />
+            <input
+              className={fieldClass}
+              placeholder="Nombres"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
           </Field>
           <Field label="Apellidos">
-            <input className={fieldClass} placeholder="Apellidos" value={lastName} onChange={(e) => setLastName(e.target.value)} />
+            <input
+              className={fieldClass}
+              placeholder="Apellidos"
+              value={lastName}
+              onChange={(e) => setLastName(e.target.value)}
+            />
           </Field>
           <Field label="DNI">
             <input
@@ -232,15 +242,27 @@ export default function AddClientDialog({
               inputMode="numeric"
               maxLength={8}
               value={documentNumber}
-              onChange={(e) => setDocumentNumber(e.target.value.replace(/\D/g, "").slice(0, 8))}
+              onChange={(e) =>
+                setDocumentNumber(e.target.value.replace(/\D/g, "").slice(0, 8))
+              }
             />
           </Field>
           <Field label="Red social">
-            <input className={fieldClass} placeholder="@usuario o link" value={social} onChange={(e) => setSocial(e.target.value)} />
+            <input
+              className={fieldClass}
+              placeholder="@usuario o link"
+              value={social}
+              onChange={(e) => setSocial(e.target.value)}
+            />
           </Field>
           <div className="sm:col-span-2">
             <Field label="Dirección">
-              <input className={fieldClass} placeholder="Dirección opcional" value={address} onChange={(e) => setAddress(e.target.value)} />
+              <input
+                className={fieldClass}
+                placeholder="Dirección opcional"
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+              />
             </Field>
           </div>
         </div>
@@ -259,7 +281,7 @@ export default function AddClientDialog({
 
       {/* Fechas manuales */}
       <section className={`${sectionClass} mt-3 space-y-3`}>
-        <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+        <label className="flex items-center gap-2 text-sm font-medium text-zinc-300">
           <input
             type="checkbox"
             checked={manualDates}
@@ -290,7 +312,7 @@ export default function AddClientDialog({
             </div>
 
             {/* Asistente de promo */}
-            <label className="mt-1 flex items-center gap-2 text-sm font-medium text-gray-700">
+            <label className="mt-1 flex items-center gap-2 text-sm font-medium text-zinc-300">
               <input
                 type="checkbox"
                 checked={usePromoAssistant}
@@ -351,7 +373,7 @@ export default function AddClientDialog({
                   />
                 </div>
 
-                <div className="col-span-1 text-xs text-gray-500 sm:col-span-3">
+                <div className="col-span-1 text-xs text-zinc-500 sm:col-span-3">
                   Duración efectiva: <b>{durationDays}</b> días
                   {membershipStart && usePromoAssistant ? (
                     <>
@@ -360,7 +382,7 @@ export default function AddClientDialog({
                         {(() => {
                           if (!membershipEnd) return "—";
                           return new Date(membershipEnd).toLocaleDateString(
-                            "es-PE"
+                            "es-PE",
                           );
                         })()}
                       </b>
@@ -376,10 +398,22 @@ export default function AddClientDialog({
       {/* Teléfonos */}
       <section className={`${sectionClass} mt-3 grid gap-3 sm:grid-cols-2`}>
         <Field label="Teléfono principal">
-          <PhoneInput defaultCountry="PE" placeholder="987 654 321" value={phone} onChange={setPhone} className={phoneInputClass} />
+          <PhoneInput
+            defaultCountry="PE"
+            placeholder="987 654 321"
+            value={phone}
+            onChange={setPhone}
+            className={phoneInputClass}
+          />
         </Field>
         <Field label="Teléfono de emergencia">
-          <PhoneInput defaultCountry="PE" placeholder="Opcional" value={emergencyPhone} onChange={setEmergencyPhone} className={phoneInputClass} />
+          <PhoneInput
+            defaultCountry="PE"
+            placeholder="Opcional"
+            value={emergencyPhone}
+            onChange={setEmergencyPhone}
+            className={phoneInputClass}
+          />
         </Field>
       </section>
 
@@ -413,23 +447,23 @@ export default function AddClientDialog({
       {/* Modal de credenciales */}
       {credentials && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-gray-200 bg-white p-5 text-gray-900 shadow-2xl">
-            <h2 className="text-center text-xl font-bold text-gray-900">
+          <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-lg border border-white/10 bg-zinc-950 p-5 text-zinc-100 shadow-2xl">
+            <h2 className="text-center text-xl font-bold text-white">
               ¡Bienvenido a Wolf Gym!
             </h2>
-            <p className="text-center text-sm italic text-gray-500">
+            <p className="text-center text-sm text-zinc-500">
               El éxito es la suma de pequeños esfuerzos repetidos día tras día.
             </p>
 
             <textarea
               readOnly
-              className="mt-4 h-44 w-full resize-none rounded-lg border border-gray-300 bg-white p-4 text-sm text-gray-900"
+              className="mt-4 h-44 w-full resize-none rounded-md border border-white/15 bg-zinc-900 p-4 text-sm text-zinc-100"
               value={credentials.message || ""}
             />
 
             <Button
               variant="outline"
-              className="mt-3 w-full border-gray-300 bg-gray-100 text-sm text-gray-800 hover:bg-gray-200"
+              className="mt-3 w-full border-white/15 bg-zinc-900 text-sm text-zinc-100 hover:bg-zinc-800"
               onClick={() => {
                 navigator.clipboard.writeText(credentials.message || "");
               }}
@@ -438,9 +472,13 @@ export default function AddClientDialog({
             </Button>
 
             <Button
-              className="mt-2 w-full bg-black text-white hover:bg-gray-800"
+              className="mt-2 w-full border border-white/15 bg-zinc-900 text-white hover:bg-zinc-800"
               onClick={() =>
-                window.open(credentials.whatsappUrl || `https://wa.me/${credentials.phone}`, "_blank")
+                window.open(
+                  credentials.whatsappUrl ||
+                    `https://wa.me/${credentials.phone}`,
+                  "_blank",
+                )
               }
             >
               Enviar vía WhatsApp
@@ -459,13 +497,7 @@ export default function AddClientDialog({
   );
 }
 
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: ReactNode;
-}) {
+function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="block">
       <span className={labelClass}>{label}</span>

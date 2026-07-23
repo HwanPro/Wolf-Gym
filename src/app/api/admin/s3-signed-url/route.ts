@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { getToken } from "next-auth/jwt";
+import { getSensitiveAdminAccess } from "@/server/security/sensitive-admin-access";
 
 const s3Client = new S3Client({
   region: process.env.AWS_REGION!,
@@ -12,14 +12,12 @@ const s3Client = new S3Client({
 });
 
 export async function GET(request: NextRequest) {
-  const token = await getToken({
-    req: request,
-    secret: process.env.NEXTAUTH_SECRET,
-  });
-
-  if (!token || token.role !== "admin") {
-    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-  }
+  const access = await getSensitiveAdminAccess(request);
+  if (!access.authorized)
+    return NextResponse.json(
+      { error: access.error },
+      { status: access.status },
+    );
 
   try {
     const { searchParams } = new URL(request.url);
@@ -28,7 +26,7 @@ export async function GET(request: NextRequest) {
     if (!key) {
       return NextResponse.json(
         { error: "Clave de objeto requerida" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -37,21 +35,21 @@ export async function GET(request: NextRequest) {
       Key: key,
     });
 
-    // Generar URL firmada válida por 1 hora
-    const signedUrl = await getSignedUrl(s3Client, command, { 
-      expiresIn: 3600 
+    // URL temporal: evita conservar rutas reutilizables durante una sesión completa.
+    const signedUrl = await getSignedUrl(s3Client, command, {
+      expiresIn: 300,
     });
 
     return NextResponse.json({
       success: true,
       signedUrl,
-      expiresIn: 3600,
+      expiresIn: 300,
     });
   } catch (error) {
     console.error("Error generando URL firmada:", error);
     return NextResponse.json(
       { error: "Error interno del servidor" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Swal from "sweetalert2";
 import "sweetalert2/dist/sweetalert2.min.css";
 import { useSession } from "next-auth/react";
+import { RefreshCw } from "lucide-react";
 
 /* ─── Wolf Gym design tokens ─── */
 const W = {
@@ -1161,7 +1162,7 @@ export default function CheckInPage() {
                         "rgba(255,255,255,0.8)",
                         W.lineStrong,
                       ),
-                      height: 30,
+                      minHeight: 40,
                       fontSize: 11,
                       padding: "0 10px",
                       width: "auto",
@@ -1173,7 +1174,7 @@ export default function CheckInPage() {
                     onClick={() => window.open(displayUrl, "_blank")}
                     style={{
                       ...btn(W.yellow, W.black),
-                      height: 30,
+                      minHeight: 40,
                       fontSize: 11,
                       padding: "0 10px",
                       width: "auto",
@@ -1239,17 +1240,21 @@ export default function CheckInPage() {
                   </div>
                   <button
                     onClick={refreshActiveGymMembers}
+                    aria-label="Actualizar miembros activos"
                     title="Actualizar"
                     style={{
                       background: "transparent",
                       border: "none",
                       cursor: "pointer",
                       color: W.yellow,
-                      fontSize: 18,
-                      padding: 4,
+                      width: 40,
+                      height: 40,
+                      display: "inline-grid",
+                      placeItems: "center",
+                      padding: 0,
                     }}
                   >
-                    ⟳
+                    <RefreshCw aria-hidden="true" size={18} />
                   </button>
                 </div>
 
