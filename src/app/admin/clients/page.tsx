@@ -865,7 +865,37 @@ export default function ClientsPage() {
         fontFamily: W.font,
       }}
     >
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&display=swap');`}</style>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&display=swap');
+        .client-action-tooltip::after {
+          position: absolute;
+          bottom: calc(100% + 8px);
+          left: 50%;
+          z-index: 50;
+          width: max-content;
+          max-width: 13rem;
+          padding: 6px 10px;
+          transform: translateX(-50%);
+          border: 1px solid rgba(255, 255, 255, 0.15);
+          border-radius: 6px;
+          background: #09090b;
+          color: #f4f4f5;
+          box-shadow: 0 10px 24px rgba(0, 0, 0, 0.4);
+          content: attr(data-tooltip);
+          font-size: 12px;
+          font-weight: 500;
+          line-height: 16px;
+          text-align: center;
+          pointer-events: none;
+          opacity: 0;
+          transition: opacity 150ms ease;
+        }
+        .client-action-tooltip:hover::after,
+        .client-action-tooltip:focus-within::after {
+          opacity: 1;
+          transition-delay: 500ms;
+        }
+      `}</style>
       <ToastContainer />
 
       {/* Header */}
@@ -1416,7 +1446,7 @@ export default function ClientsPage() {
           </div>
 
           {/* Desktop table */}
-          <div className="hidden overflow-x-auto min-[1760px]:block">
+          <div className="hidden overflow-visible min-[1760px]:block">
             <Table className="w-full min-w-[1660px] table-auto border-separate border-spacing-y-1 text-sm [&_tbody_tr>td]:border-y [&_tbody_tr>td]:border-white/10 [&_tbody_tr>td]:bg-zinc-950/70 [&_tbody_tr>td:first-child]:rounded-l-md [&_tbody_tr>td:first-child]:border-l [&_tbody_tr>td:last-child]:rounded-r-md [&_tbody_tr>td:last-child]:border-r [&_tbody_tr:hover>td]:bg-zinc-900">
               <TableHeader className="sticky top-0 z-10 !bg-zinc-950">
                 <TableRow className="border-zinc-800 !bg-zinc-950">
@@ -1622,45 +1652,54 @@ export default function ClientsPage() {
                         </TableCell>
                         <TableCell style={{ ...tdStyle, minWidth: 330 }}>
                           <div className="flex min-w-max items-center gap-1.5">
-                            <Button
-                              onClick={() => {
-                                setSelectedClientForDebt({
-                                  id: client.id,
-                                  name: `${client.firstName} ${client.lastName}`,
-                                  profileId: client.id,
-                                });
-                                setShowDebtDialog(true);
-                              }}
-                              title="Gestionar cobros"
-                              aria-label="Gestionar cobros"
-                              className="h-9 w-9 border border-white/15 bg-zinc-900 p-0 text-zinc-100 hover:bg-zinc-800"
+                            <ActionTooltip label="Gestionar cobros y deudas">
+                              <Button
+                                onClick={() => {
+                                  setSelectedClientForDebt({
+                                    id: client.id,
+                                    name: `${client.firstName} ${client.lastName}`,
+                                    profileId: client.id,
+                                  });
+                                  setShowDebtDialog(true);
+                                }}
+                                aria-label="Gestionar cobros y deudas"
+                                className="h-9 w-9 border border-white/15 bg-zinc-900 p-0 text-zinc-100 hover:bg-zinc-800"
+                              >
+                                <BadgeDollarSign className="h-4 w-4" />
+                              </Button>
+                            </ActionTooltip>
+                            <ActionTooltip
+                              label={
+                                has ? "Reemplazar huella" : "Registrar huella"
+                              }
                             >
-                              <BadgeDollarSign className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              title={has ? "Reemplazar huella" : "Registrar huella"}
-                              aria-label={has ? "Reemplazar huella" : "Registrar huella"}
-                              className={`${busy[uid] ? "cursor-not-allowed opacity-50" : "hover:bg-yellow-300"} h-9 w-9 bg-yellow-400 p-0 text-black`}
-                              onClick={() => registerFingerprint(uid)}
-                              disabled={!!busy[uid] || !!deleting[uid]}
-                            >
-                              {busy[uid] ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <Fingerprint className="h-4 w-4" />
-                              )}
-                            </Button>
-                            <Button
-                              title="Verificar huella"
-                              aria-label="Verificar huella"
-                              className={`h-9 w-9 p-0 !border-white/15 !bg-zinc-900 !text-zinc-100 hover:!bg-zinc-800 ${busy[uid] ? "cursor-not-allowed opacity-50" : ""}`}
-                              onClick={() => verifyFingerprint(uid)}
-                              disabled={!!busy[uid] || !!deleting[uid]}
-                              variant="outline"
-                            >
-                              <ShieldCheck className="h-4 w-4" />
-                            </Button>
-                            <div>
+                              <Button
+                                aria-label={
+                                  has ? "Reemplazar huella" : "Registrar huella"
+                                }
+                                className={`${busy[uid] ? "cursor-not-allowed opacity-50" : "hover:bg-yellow-300"} h-9 w-9 bg-yellow-400 p-0 text-black`}
+                                onClick={() => registerFingerprint(uid)}
+                                disabled={!!busy[uid] || !!deleting[uid]}
+                              >
+                                {busy[uid] ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Fingerprint className="h-4 w-4" />
+                                )}
+                              </Button>
+                            </ActionTooltip>
+                            <ActionTooltip label="Verificar identidad por huella">
+                              <Button
+                                aria-label="Verificar identidad por huella"
+                                className={`h-9 w-9 p-0 !border-white/15 !bg-zinc-900 !text-zinc-100 hover:!bg-zinc-800 ${busy[uid] ? "cursor-not-allowed opacity-50" : ""}`}
+                                onClick={() => verifyFingerprint(uid)}
+                                disabled={!!busy[uid] || !!deleting[uid]}
+                                variant="outline"
+                              >
+                                <ShieldCheck className="h-4 w-4" />
+                              </Button>
+                            </ActionTooltip>
+                            <ActionTooltip label="Editar datos del cliente">
                               <EditClientDialog
                                 client={{ ...client, email: client.userName }}
                                 compactTrigger
@@ -1676,42 +1715,45 @@ export default function ClientsPage() {
                                   toast.success("Cliente actualizado");
                                 }}
                               />
-                            </div>
-                            <Button
-                              title="Enviar credenciales"
-                              aria-label="Enviar credenciales"
-                              className="h-9 w-9 p-0 !border-white/15 !bg-zinc-900 !text-zinc-100 hover:!bg-zinc-800"
-                              onClick={() => sendCredentials(client)}
-                              disabled={
-                                !!busy[client.id] || !!deleting[client.id]
-                              }
-                              variant="outline"
-                            >
-                              <Send className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              title="Eliminar cliente"
-                              aria-label="Eliminar cliente"
-                              className="h-9 w-9 border border-red-500/40 bg-red-500/10 p-0 text-red-300 hover:bg-red-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                              onClick={() => handleDeleteClick(client.id)}
-                              disabled={!!deleting[client.id] || isPageLoading}
-                            >
-                              {deleting[client.id] ? (
-                                <BtnSpinner />
-                              ) : (
-                                <Trash2 className="h-4 w-4" />
-                              )}
-                            </Button>
-                            <Button
-                              title="Eliminar huella"
-                              aria-label="Eliminar huella"
-                              className={`h-9 w-9 p-0 !border-red-500/40 !bg-red-500/10 !text-red-300 hover:!bg-red-500 hover:!text-white ${busy[uid] ? "opacity-50 cursor-not-allowed" : ""}`}
-                              onClick={() => deleteFingerprint(uid)}
-                              disabled={!!busy[uid] || !!deleting[uid]}
-                              variant="outline"
-                            >
-                              <Fingerprint className="h-4 w-4" />
-                            </Button>
+                            </ActionTooltip>
+                            <ActionTooltip label="Enviar credenciales de acceso">
+                              <Button
+                                aria-label="Enviar credenciales de acceso"
+                                className="h-9 w-9 p-0 !border-white/15 !bg-zinc-900 !text-zinc-100 hover:!bg-zinc-800"
+                                onClick={() => sendCredentials(client)}
+                                disabled={
+                                  !!busy[client.id] || !!deleting[client.id]
+                                }
+                                variant="outline"
+                              >
+                                <Send className="h-4 w-4" />
+                              </Button>
+                            </ActionTooltip>
+                            <ActionTooltip label="Eliminar cliente">
+                              <Button
+                                aria-label="Eliminar cliente"
+                                className="h-9 w-9 border border-red-500/40 bg-red-500/10 p-0 text-red-300 hover:bg-red-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                                onClick={() => handleDeleteClick(client.id)}
+                                disabled={!!deleting[client.id] || isPageLoading}
+                              >
+                                {deleting[client.id] ? (
+                                  <BtnSpinner />
+                                ) : (
+                                  <Trash2 className="h-4 w-4" />
+                                )}
+                              </Button>
+                            </ActionTooltip>
+                            <ActionTooltip label="Eliminar huella registrada">
+                              <Button
+                                aria-label="Eliminar huella registrada"
+                                className={`h-9 w-9 p-0 !border-red-500/40 !bg-red-500/10 !text-red-300 hover:!bg-red-500 hover:!text-white ${busy[uid] ? "cursor-not-allowed opacity-50" : ""}`}
+                                onClick={() => deleteFingerprint(uid)}
+                                disabled={!!busy[uid] || !!deleting[uid]}
+                                variant="outline"
+                              >
+                                <Fingerprint className="h-4 w-4" />
+                              </Button>
+                            </ActionTooltip>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -2007,6 +2049,23 @@ function AttendanceSummary({
         {details.length ? details.join(" · ") : "Sin marcaciones"}
       </span>
     </div>
+  );
+}
+
+function ActionTooltip({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <span
+      className="client-action-tooltip relative inline-flex"
+      data-tooltip={label}
+    >
+      {children}
+    </span>
   );
 }
 

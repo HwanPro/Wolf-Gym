@@ -177,7 +177,6 @@ export default function EditClientDialog({
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>
         <Button
-          title={compactTrigger ? "Editar cliente" : undefined}
           aria-label={compactTrigger ? "Editar cliente" : undefined}
           className={
             compactTrigger
