@@ -57,7 +57,9 @@ jobs:
         with:
           tag_name: ${{ env.WOLFGYM_VERSION }}
           name: WolfGym ${{ env.WOLFGYM_VERSION }}
-          files: dist/WolfGym-${{ env.WOLFGYM_VERSION }}.zip
+          files: |
+            dist/WolfGym-${{ env.WOLFGYM_VERSION }}.zip
+            dist/WolfGym-${{ env.WOLFGYM_VERSION }}.zip.sha256
           make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

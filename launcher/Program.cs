@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net.Http;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -12,7 +13,7 @@ internal static class Program
     private const string ReleaseApiUrl = "https://api.github.com/repos/HwanPro/Wolf-Gym/releases/latest";
 
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(2) };
-    private static readonly HttpClient UpdateHttp = new() { Timeout = TimeSpan.FromMinutes(3) };
+    private static readonly HttpClient UpdateHttp = new() { Timeout = TimeSpan.FromMinutes(20) };
     private static readonly List<Process> StartedProcesses = [];
     private static string _logDir = "";
 
@@ -45,6 +46,8 @@ internal static class Program
         var bioDir = Path.Combine(root, "biometric");
         var bioExe = Path.Combine(bioDir, "WolfGym.BiometricService.exe");
         var webDir = Path.Combine(root, "webapp");
+        var nodeExe = Path.Combine(root, "runtime", "node.exe");
+        var nextCli = Path.Combine(webDir, "node_modules", "next", "dist", "bin", "next");
 
         if (!File.Exists(bioExe))
         {
@@ -55,6 +58,12 @@ internal static class Program
         if (!Directory.Exists(webDir))
         {
             Fail($"No existe la carpeta webapp: {webDir}");
+            return 1;
+        }
+
+        if (!File.Exists(nodeExe) || !File.Exists(nextCli))
+        {
+            Fail("La instalacion no incluye el runtime web. Ejecuta 'wolfgym download' para repararla.");
             return 1;
         }
 
@@ -78,8 +87,8 @@ internal static class Program
         {
             StartProcess(
                 "Web",
-                "cmd.exe",
-                "/c npm.cmd run start",
+                nodeExe,
+                $"\"{nextCli}\" start -p 3000",
                 webDir,
                 Path.Combine(_logDir, "web.log"));
         }
@@ -133,6 +142,20 @@ internal static class Program
             if (asset?.BrowserDownloadUrl is null)
                 return false;
 
+            var checksumAsset = release.Assets?
+                .FirstOrDefault(a => string.Equals(
+                    a.Name,
+                    $"{asset.Name}.sha256",
+                    StringComparison.OrdinalIgnoreCase));
+
+            if (checksumAsset?.BrowserDownloadUrl is null)
+            {
+                AppendLog(
+                    Path.Combine(_logDir, "updater.log"),
+                    $"Release {release.TagName} omitido: no incluye checksum SHA-256.");
+                return false;
+            }
+
             Console.ForegroundColor = ConsoleColor.Yellow;
             Console.WriteLine();
             Console.WriteLine($"Actualizacion disponible: {currentVersion} -> {release.TagName}");
@@ -145,6 +168,23 @@ internal static class Program
             {
                 await input.CopyToAsync(output);
             }
+
+            var checksumText = await UpdateHttp.GetStringAsync(checksumAsset.BrowserDownloadUrl);
+            var expectedHash = checksumText
+                .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+                .FirstOrDefault()?
+                .Trim()
+                .ToUpperInvariant();
+            await using var packageStream = File.OpenRead(zipPath);
+            var actualHash = Convert.ToHexString(await SHA256.HashDataAsync(packageStream));
+
+            if (expectedHash?.Length != 64 || !string.Equals(expectedHash, actualHash, StringComparison.Ordinal))
+            {
+                File.Delete(zipPath);
+                throw new InvalidDataException("El checksum SHA-256 del paquete no coincide.");
+            }
+
+            Console.WriteLine("Integridad SHA-256 verificada.");
 
             var scriptPath = WriteUpdateScript(root, zipPath);
             var updaterLog = Path.Combine(_logDir, "updater.log");
@@ -308,11 +348,22 @@ try {
     if (-not (Test-Path (Join-Path $payload "biometric"))) {
         throw "ZIP invalido: no contiene carpeta biometric"
     }
+    if (-not (Test-Path (Join-Path $payload "runtime\node.exe"))) {
+        throw "ZIP invalido: no contiene runtime de Node.js"
+    }
+    if (-not (Test-Path (Join-Path $payload "version.json"))) {
+        throw "ZIP invalido: no contiene version.json"
+    }
     Write-Log "Payload validado correctamente."
 
     Get-Process -Name "WolfGym.BiometricService" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-    Get-Process -Name "node" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-    Get-Process -Name "npm" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    try {
+        Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue |
+            Where-Object { $_.CommandLine -and $_.CommandLine.IndexOf($Root, [StringComparison]::OrdinalIgnoreCase) -ge 0 } |
+            ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    } catch {
+        Write-Log "No se pudo consultar WMI para cerrar Node; se continuara con el reemplazo."
+    }
     Start-Sleep -Milliseconds 700
 
     Get-ChildItem -LiteralPath $Root -Force |
@@ -339,6 +390,13 @@ try {
     Write-Host "Actualizacion completada. Reiniciando..." -ForegroundColor Green
     Write-Log "Actualizacion completada. Reiniciando launcher."
     Start-Process -FilePath $launcher -ArgumentList "--skip-update" -WorkingDirectory $Root
+    try {
+        Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction Stop
+        $backupReady = $false
+        Write-Log "Backup temporal eliminado."
+    } catch {
+        Write-Log ("No se pudo eliminar el backup temporal: " + $_.Exception.Message)
+    }
 } catch {
     Write-Host ("Error actualizando: " + $_.Exception.Message) -ForegroundColor Red
     Write-Log ("ERROR: " + $_.Exception.Message)

@@ -39,23 +39,12 @@ try
     // Si también lo corres en consola, no pasa nada.
     builder.Host.UseWindowsService();
 
-    // Kestrel: configuración para desarrollo y producción
+    // El lector solo debe ser accesible desde la PC anfitriona.
+    var biometricPort = builder.Configuration.GetValue("BiometricService:Port", 8001);
     builder.WebHost.ConfigureKestrel(k =>
     {
         k.Limits.MaxRequestBodySize = 5 * 1024 * 1024; // 5MB por si envías imágenes
-        
-        // Configuración según el entorno
-        var isDevelopment = builder.Environment.IsDevelopment();
-        if (isDevelopment)
-        {
-            // Desarrollo: solo localhost
-            k.ListenLocalhost(8002);
-        }
-        else
-        {
-            // Producción: todas las interfaces
-            k.ListenAnyIP(8002);
-        }
+        k.ListenLocalhost(biometricPort);
     });
 
     // CORS: configuración para desarrollo y producción
@@ -76,12 +65,14 @@ try
             }
             else
             {
-                // Producción: dominios de Wolf Gym
+                // Producción web y aplicación de escritorio local.
                 policy.WithOrigins(
                         "https://wolf-gym.com",
                         "https://www.wolf-gym.com",
                         "http://wolf-gym.com",
-                        "http://www.wolf-gym.com"
+                        "http://www.wolf-gym.com",
+                        "http://localhost:3000",
+                        "http://127.0.0.1:3000"
                       )
                       .AllowAnyMethod()
                       .AllowAnyHeader();
@@ -148,7 +139,7 @@ try
 
     // Logs de ciclo de vida (útil si Windows reinicia el servicio)
     app.Lifetime.ApplicationStarted.Register(() =>
-        Log.Information("Service started successfully on http://127.0.0.1:8002"));
+        Log.Information("Service started successfully on http://127.0.0.1:{Port}", biometricPort));
     app.Lifetime.ApplicationStopping.Register(() =>
         Log.Information("Service stopping..."));
     app.Lifetime.ApplicationStopped.Register(() =>

@@ -23,6 +23,7 @@ $DIST   = Join-Path $ROOT "dist\WolfGym"
 $BIO_SRC = Join-Path $ROOT "biometric-service"
 $BIO_DEST = Join-Path $DIST "biometric"
 $WEB_DEST = Join-Path $DIST "webapp"
+$RUNTIME_DEST = Join-Path $DIST "runtime"
 $SETUP_SRC = Join-Path $ROOT "setup-launcher"
 $LAUNCHER_SRC = Join-Path $ROOT "launcher"
 
@@ -52,6 +53,7 @@ if (Test-Path $DIST) {
 New-Item $DIST     -ItemType Directory | Out-Null
 New-Item $BIO_DEST -ItemType Directory | Out-Null
 New-Item $WEB_DEST -ItemType Directory | Out-Null
+New-Item $RUNTIME_DEST -ItemType Directory | Out-Null
 
 # ── 1. Compilar servicio biométrico C# (self-contained) ──────────────────────
 Write-Host "Compilando servicio biométrico..." -ForegroundColor Cyan
@@ -71,15 +73,39 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host "  Servicio biométrico compilado OK" -ForegroundColor Green
 
-# ── 2. Copiar config de producción ────────────────────────────────────────────
-$prodConfig = Join-Path $BIO_SRC "appsettings.Production.json"
-if (Test-Path $prodConfig) {
-    Copy-Item $prodConfig (Join-Path $BIO_DEST "appsettings.json") -Force
-    Write-Host "  Config de producción copiada" -ForegroundColor Green
+# ── 2. Sanitizar config del paquete ─────────────────────────────────────────────
+$packagedConfigPath = Join-Path $BIO_DEST "appsettings.json"
+if (Test-Path $packagedConfigPath) {
+    $packagedConfig = Get-Content -LiteralPath $packagedConfigPath -Raw | ConvertFrom-Json
+    $packagedConfig.ConnectionStrings.DefaultConnection = ""
+    $packagedConfig | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $packagedConfigPath -Encoding UTF8
+    Write-Host "  Config biometrica sanitizada; los secretos se conservan localmente" -ForegroundColor Green
 }
 
 # ── 3. Build Next.js ──────────────────────────────────────────────────────────
 Write-Host "Compilando app web (Next.js)..." -ForegroundColor Cyan
+$releaseBuildEnvironment = @{
+    DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/wolfgym?schema=public"
+    SHADOW_DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/wolfgym_shadow?schema=public"
+    NEXTAUTH_SECRET = "wolfgym-release-placeholder"
+    NEXTAUTH_URL = "http://127.0.0.1:3000"
+    AWS_ACCESS_KEY_ID = "release-placeholder"
+    AWS_SECRET_ACCESS_KEY = "release-placeholder"
+    AWS_REGION = "us-east-1"
+    AWS_BUCKET_NAME = "release-placeholder"
+    CULQI_PRIVATE_KEY = "release-placeholder"
+    EMAIL_USER = "release@example.invalid"
+    EMAIL_PASS = "release-placeholder"
+    SMTP_USER = "release@example.invalid"
+    SMTP_PASS = "release-placeholder"
+    TWILIO_ACCOUNT_SID = "release-placeholder"
+    TWILIO_AUTH_TOKEN = "release-placeholder"
+}
+$previousBuildEnvironment = @{}
+foreach ($name in $releaseBuildEnvironment.Keys) {
+    $previousBuildEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
+    [Environment]::SetEnvironmentVariable($name, $releaseBuildEnvironment[$name], "Process")
+}
 Push-Location $ROOT
 try {
     Write-Host "  Instalando dependencias del proyecto..." -ForegroundColor Yellow
@@ -116,11 +142,14 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "next build falló" }
 } finally {
     Pop-Location
+    foreach ($name in $previousBuildEnvironment.Keys) {
+        [Environment]::SetEnvironmentVariable($name, $previousBuildEnvironment[$name], "Process")
+    }
 }
 
 # Copiar archivos necesarios para next start. El lockfile evita que npm resuelva
 # dependencias distintas dentro del paquete final y dispare conflictos ERESOLVE.
-$itemsToCopy = @(".next", "public", "package.json", "package-lock.json", "next.config.cjs", "prisma", ".env", ".env.local")
+$itemsToCopy = @(".next", "public", "package.json", "package-lock.json", "next.config.cjs", "prisma")
 foreach ($item in $itemsToCopy) {
     $src = Join-Path $ROOT $item
     $dst = Join-Path $WEB_DEST $item
@@ -163,6 +192,13 @@ if (Test-Path $prismaClientSrc) {
 
 Write-Host "  App web compilada OK" -ForegroundColor Green
 
+# ── 3b. Incluir runtime Node.js ─────────────────────────────────────────────
+# La PC cliente no necesita instalar Node. El launcher usa este ejecutable para
+# iniciar Next.js directamente desde webapp\node_modules.
+$nodeCommand = Get-Command node -ErrorAction Stop
+Copy-Item -LiteralPath $nodeCommand.Source -Destination (Join-Path $RUNTIME_DEST "node.exe") -Force
+Write-Host "  Runtime Node.js incluido: $(& $nodeCommand.Source --version)" -ForegroundColor Green
+
 # ── 4. Crear lanzador .bat ─────────────────────────────────────────────────────
 Write-Host "Creando lanzador..." -ForegroundColor Cyan
 
@@ -177,11 +213,10 @@ echo   WOLF GYM - Iniciando sistema...
 echo  ==========================================
 echo.
 
-REM Verificar Node.js
-node --version >nul 2>&1
-if errorlevel 1 (
-    echo ERROR: Node.js no encontrado.
-    echo Por favor instale Node.js desde https://nodejs.org
+REM Verificar runtime Node.js incluido
+if not exist "%~dp0runtime\node.exe" (
+    echo ERROR: El paquete no incluye runtime\node.exe.
+    echo Ejecute wolfgym download para reparar la instalacion.
     pause
     exit /b 1
 )
@@ -200,7 +235,7 @@ set BIOMETRIC_STORE_BASE=http://127.0.0.1:8001
 set NEXT_PUBLIC_BIOMETRIC_BASE=http://127.0.0.1:8001
 set NEXT_PUBLIC_KIOSK=1
 set NEXTAUTH_URL=http://127.0.0.1:3000
-start "" /min /D "%~dp0webapp" cmd /c "npm.cmd run start"
+start "" /min /D "%~dp0webapp" "%~dp0runtime\node.exe" "%~dp0webapp\node_modules\next\dist\bin\next" start -p 3000
 
 REM Esperar que levante
 timeout /t 5 /nobreak >nul
@@ -225,6 +260,8 @@ Set-Content (Join-Path $DIST "WolfGym.bat") $batContent -Encoding UTF8
 $launcherProject = Join-Path $LAUNCHER_SRC "WolfGymLauncher.csproj"
 if (Test-Path $launcherProject) {
     Write-Host "Compilando WolfGymLauncher.exe..." -ForegroundColor Cyan
+    $assemblyVersion = (($Version.Trim().TrimStart('v', 'V')) -split '[-+]')[0]
+    if ($assemblyVersion -notmatch '^\d+\.\d+\.\d+(\.\d+)?$') { $assemblyVersion = "1.0.0" }
     dotnet publish $launcherProject `
         -c Release `
         -r win-x64 `
@@ -232,10 +269,13 @@ if (Test-Path $launcherProject) {
         -p:PublishSingleFile=true `
         -p:IncludeNativeLibrariesForSelfExtract=true `
         -p:EnableCompressionInSingleFile=true `
+        -p:Version=$assemblyVersion `
         -o $DIST
 
     if ($LASTEXITCODE -ne 0) { throw "WolfGymLauncher.exe no pudo compilarse" }
     Write-Host "  WolfGymLauncher.exe compilado OK" -ForegroundColor Green
+    Copy-Item -LiteralPath (Join-Path $LAUNCHER_SRC "Assets\WolfGymLauncher.ico") -Destination (Join-Path $DIST "WolfGym.ico") -Force
+    Write-Host "  Icono WolfGym.ico incluido" -ForegroundColor Green
 } else {
     Write-Host "  ADVERTENCIA: no se encontro launcher\WolfGymLauncher.csproj; se deja solo WolfGym.bat" -ForegroundColor Yellow
 }
@@ -244,6 +284,7 @@ if (Test-Path $launcherProject) {
 Write-Host "Buscando DLLs de ZKTeco para incluir en el paquete..." -ForegroundColor Cyan
 
 $zkDlls = @("libzkfp.dll", "libzkfpcsharp.dll")
+$bundledZkRoot = Join-Path $ROOT "vendor\zkfinger\win-x64"
 
 function Get-ZKSearchRoots {
     $roots = New-Object System.Collections.Generic.List[string]
@@ -258,6 +299,7 @@ function Get-ZKSearchRoots {
     }
 
     @(
+        $bundledZkRoot,
         $env:ZKFINGER_SDK_ROOT,
         $env:WOLFGYM_ZKFINGER_SDK,
         "D:\Downloads\ZKFinger SDK V10.0-Windows-Lite",
@@ -304,8 +346,15 @@ foreach ($dll in $zkDlls) {
     }
 
     if (-not (Test-Path $dest)) {
-        Write-Host "  ADVERTENCIA: $dll no encontrado (deberá copiarse manualmente)" -ForegroundColor Yellow
+        throw "$dll no encontrado. El release no puede controlar el huellero sin el SDK ZKTeco x64."
     }
+}
+
+$zkLicense = Join-Path $ROOT "vendor\zkfinger\EULA.txt"
+if (Test-Path $zkLicense) {
+    $licenseDir = Join-Path $DIST "THIRD-PARTY-LICENSES"
+    New-Item -ItemType Directory -Path $licenseDir -Force | Out-Null
+    Copy-Item -LiteralPath $zkLicense -Destination (Join-Path $licenseDir "ZKTeco-EULA.txt") -Force
 }
 
 # ── 6. README de inicio rapido ────────────────────────────────────────────────
@@ -314,10 +363,9 @@ $readme = @(
     "=========================",
     "",
     "REQUISITOS PREVIOS (instalar una sola vez):",
-    "  1. Node.js 20+        -> https://nodejs.org",
-    "  2. Driver ZKTeco ZK9500 -> incluido en el CD del dispositivo o pagina oficial",
-    "  3. En una PC fisica: conectar el lector directo al USB antes de abrir WolfGym.",
-    "  4. En VirtualBox: instalar VirtualBox Extension Pack, habilitar USB 2.0/3.0 y agregar un filtro USB para el ZK9500.",
+    "  1. Driver ZKTeco ZK9500 -> incluido en el CD del dispositivo o pagina oficial",
+    "  2. En una PC fisica: conectar el lector directo al USB antes de abrir WolfGym.",
+    "  3. Node.js y .NET ya vienen incluidos en el paquete; no se instalan por separado.",
     "",
     "COMO INICIAR:",
     "  1. Conecte el lector de huellas USB",
@@ -366,6 +414,10 @@ if ($CreateZip) {
     Write-Host "Creando ZIP para release: $zipPath" -ForegroundColor Cyan
     Compress-Archive -Path (Join-Path $DIST "*") -DestinationPath $zipPath -Force
     Write-Host "  ZIP creado OK" -ForegroundColor Green
+    $zipHash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $checksumPath = "$zipPath.sha256"
+    "$zipHash  $(Split-Path $zipPath -Leaf)" | Set-Content -LiteralPath $checksumPath -Encoding ASCII
+    Write-Host "  SHA-256 creado: $checksumPath" -ForegroundColor Green
 }
 
 # ── Resumen ────────────────────────────────────────────────────────────────────

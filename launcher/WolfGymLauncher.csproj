@@ -6,6 +6,12 @@
     <Nullable>enable</Nullable>
     <AssemblyName>WolfGymLauncher</AssemblyName>
     <RootNamespace>WolfGymLauncher</RootNamespace>
+    <AssemblyTitle>Wolf Gym</AssemblyTitle>
+    <Product>Wolf Gym</Product>
+    <Description>Gestion de gimnasio y control biometrico</Description>
+    <Company>Wolf Gym</Company>
+    <Authors>Wolf Gym</Authors>
+    <Copyright>Copyright Wolf Gym</Copyright>
     <PlatformTarget>x64</PlatformTarget>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>

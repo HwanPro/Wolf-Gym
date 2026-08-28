@@ -21,15 +21,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Copiar DLL C# del SDK -->
-    <Content Include="..\..\..\..\Program Files\ZKFingerSDK_Windows_Standard\ZKFinger Standard SDK 5.3.0.33\C#\lib\x64\libzkfpcsharp.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>libzkfpcsharp.dll</Link>
-    </Content>
-    <!-- Nota: libzkfp.dll x64 nativa debe estar en la misma carpeta -->
-  </ItemGroup>
-
-  <ItemGroup>
     <!-- Excluir demos de la compilación -->
     <Compile Remove="C#\**" />
     <Compile Remove="c\**" />

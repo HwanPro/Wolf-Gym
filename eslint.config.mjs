@@ -14,6 +14,7 @@ const eslintConfig = [
     ignores: [
       ".claude/**",
       ".next/**",
+      ".tmp/**",
       ".vs/**",
       "biometric-service/bin/**",
       "biometric-service/obj/**",
