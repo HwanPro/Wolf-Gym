@@ -188,20 +188,20 @@ export default function EditClientDialog({
         </Button>
       </DialogTrigger>
 
-      <DialogContent className="max-h-[92vh] w-[calc(100vw-1rem)] max-w-2xl overflow-y-auto border-0 bg-transparent p-0 shadow-none">
+      <DialogContent className="max-h-[92vh] w-[calc(100vw-1rem)] max-w-2xl overflow-y-auto border-0 bg-transparent p-0 shadow-none [&>button]:!border [&>button]:!border-white/20 [&>button]:!bg-zinc-900 [&>button]:!text-zinc-100 [&>button]:!opacity-100 hover:[&>button]:!bg-zinc-800">
         <div className={dialogSurfaceClass}>
           <DialogTitle className="sr-only">Editar cliente</DialogTitle>
 
           <div className="mb-4">
-            <p className="text-xs font-semibold text-slate-600">
+            <p className="text-xs font-semibold uppercase text-yellow-400">
               Cliente
             </p>
-            <h2 className="text-xl font-black text-slate-900">Editar perfil</h2>
+            <h2 className="text-xl font-black text-zinc-50">Editar perfil</h2>
           </div>
 
           <section className={sectionClass}>
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-              <div className="grid h-20 w-20 shrink-0 place-items-center overflow-hidden rounded-md border border-wolf-border bg-white">
+              <div className="grid h-20 w-20 shrink-0 place-items-center overflow-hidden rounded-md border border-white/15 bg-zinc-950">
                 {imagePreview ? (
                   <Image
                     src={imagePreview}
@@ -211,13 +211,13 @@ export default function EditClientDialog({
                     className="h-full w-full object-cover"
                   />
                 ) : (
-                  <span className="text-lg font-black text-wolf-primary-strong">
+                  <span className="text-lg font-black text-yellow-400">
                     {formData.firstName?.charAt(0) || "W"}
                   </span>
                 )}
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-bold text-slate-900">Foto de perfil</p>
+                <p className="text-sm font-bold text-zinc-100">Foto de perfil</p>
                 <p className={helperTextClass}>
                   Usa una foto clara para ubicar al cliente rápido en recepción.
                 </p>
@@ -232,7 +232,7 @@ export default function EditClientDialog({
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
                   variant="outline"
-                  className="mt-3 !border-wolf-border !bg-white !text-wolf-ink hover:!bg-wolf-muted"
+                  className="mt-3 !border-white/15 !bg-zinc-950 !text-zinc-100 hover:!bg-zinc-800"
                 >
                   {imagePreview ? "Cambiar foto" : "Subir foto"}
                 </Button>
@@ -258,11 +258,11 @@ export default function EditClientDialog({
                   className={fieldClass}
                 />
               </Field>
-              <Field label="Correo">
+              <Field label="Usuario">
                 <input
                   value={formData.email}
                   readOnly
-                  className={`${fieldClass} cursor-not-allowed bg-slate-100 text-wolf-subtle`}
+                  className={`${fieldClass} cursor-not-allowed !bg-zinc-900 !text-zinc-500`}
                 />
               </Field>
               <Field label="DNI">
@@ -365,7 +365,7 @@ export default function EditClientDialog({
             <Button
               onClick={() => setIsOpen(false)}
               variant="outline"
-              className="!border-wolf-border !bg-white !text-wolf-ink hover:!bg-wolf-muted"
+              className="!border-white/15 !bg-zinc-900 !text-zinc-100 hover:!bg-zinc-800"
             >
               Cancelar
             </Button>

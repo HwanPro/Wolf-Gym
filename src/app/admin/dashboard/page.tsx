@@ -67,6 +67,7 @@ const navigationItems = [
   { href: "/admin/attendence", label: "Historial" },
   { href: "/check-in", label: "Recepción" },
   { href: "/admin/routines", label: "Rutinas" },
+  { href: "/admin/nutrition", label: "Nutrición" },
   { href: "/admin/Edit", label: "Contenido" },
 ];
 

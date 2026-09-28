@@ -307,6 +307,17 @@ body {
 
 /* Utilidades adicionales */
 @layer utilities {
+  @keyframes fingerprint-scan {
+    0%,
+    100% {
+      top: 12%;
+      opacity: 0.45;
+    }
+    50% {
+      top: 86%;
+      opacity: 1;
+    }
+  }
   .line-clamp-2 {
     display: -webkit-box;
     -webkit-line-clamp: 2;

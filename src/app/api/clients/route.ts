@@ -71,6 +71,7 @@ export async function GET(request: NextRequest) {
             id: true,
             role: true,
             username: true,
+            image: true,
             createdAt: true,
             fingerprints: { select: { id: true }, take: 1 },
             attendances: {

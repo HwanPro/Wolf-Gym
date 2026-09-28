@@ -4,6 +4,7 @@ export interface PendingCredential {
   phone: string;
   message?: string;
   whatsappUrl?: string | null;
+  createdAt?: number;
 }
 
 export interface ClientFormPayload {

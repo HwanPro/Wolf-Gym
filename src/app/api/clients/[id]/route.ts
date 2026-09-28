@@ -30,6 +30,9 @@ const clientUpdateSchema = z.object({
   phone: z.string().optional().or(z.literal("")),
   emergencyPhone: z.string().optional().default(""),
   documentNumber: z.string().optional().default(""),
+  address: z.string().trim().max(240).optional().default(""),
+  social: z.string().trim().max(240).optional().default(""),
+  image: z.string().trim().max(2048).nullable().optional(),
 });
 
 function normalizeDocument(value?: string | null) {
@@ -45,6 +48,13 @@ function normalizeWhatsappPhone(value?: string | null) {
 
 function buildCredentialMessage(username: string, password: string) {
   return `Wolf Gym - credenciales de acceso\n\nUsuario: ${username}\nContraseña: ${password}\n\nIngresa en: https://www.wolf-gym.com/auth/login\nPuedes cambiar tu contraseña desde tu perfil.`;
+}
+
+function maskEmail(email: string) {
+  const [local, domain] = email.split("@");
+  if (!domain) return email;
+  const visible = local.slice(0, Math.min(2, local.length));
+  return `${visible}${"*".repeat(Math.max(2, local.length - visible.length))}@${domain}`;
 }
 
 /* ---------- PUT: actualizar cliente ---------- */
@@ -141,6 +151,8 @@ export async function PUT(
           profile_phone: phoneE164 ?? null,
           profile_emergency_phone:
             validatedData.emergencyPhone?.trim() || null,
+          profile_address: validatedData.address || null,
+          profile_social: validatedData.social || null,
           documentNumber: documentNumber || null,
         },
       }),
@@ -149,6 +161,9 @@ export async function PUT(
         data: {
           firstName: validatedData.firstName,
           lastName: validatedData.lastName,
+          ...(validatedData.image !== undefined
+            ? { image: validatedData.image || null }
+            : {}),
           ...(phoneE164 ? { phoneNumber: phoneE164 } : {}),
         },
       }),
@@ -264,6 +279,25 @@ export async function POST(
       return NextResponse.json({ error: "Cliente no encontrado" }, { status: 404 });
     }
 
+    const verifiedEmail = await prisma.emailVerification.findUnique({
+      where: { userId: profile.user.id },
+      select: { email: true, verified: true },
+    });
+
+    if (verifiedEmail?.verified) {
+      return NextResponse.json(
+        {
+          ok: true,
+          mode: "verified-email",
+          username: profile.user.username,
+          email: maskEmail(verifiedEmail.email),
+          message:
+            "Esta cuenta tiene un correo verificado. No se cambió la contraseña; el cliente debe usar ‘¿Olvidaste tu contraseña?’.",
+        },
+        { status: 200, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
     const password = `Wolf-${crypto.randomBytes(4).toString("hex")}`;
     const hashed = await bcrypt.hash(password, 10);
     await prisma.user.update({
@@ -274,16 +308,20 @@ export async function POST(
     const phone = normalizeWhatsappPhone(profile.profile_phone || profile.user.phoneNumber);
     const message = buildCredentialMessage(profile.user.username, password);
 
-    return NextResponse.json({
-      ok: true,
-      username: profile.user.username,
-      password,
-      phone,
-      message,
-      whatsappUrl: phone
-        ? `https://wa.me/${phone}?text=${encodeURIComponent(message)}`
-        : null,
-    });
+    return NextResponse.json(
+      {
+        ok: true,
+        mode: "temporary-password",
+        username: profile.user.username,
+        password,
+        phone,
+        message,
+        whatsappUrl: phone
+          ? `https://wa.me/${phone}?text=${encodeURIComponent(message)}`
+          : null,
+      },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   } catch (error) {
     console.error("Error al generar credenciales:", error);
     return NextResponse.json(

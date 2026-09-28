@@ -76,28 +76,27 @@ export default function AdminAttendance() {
   }, []);
 
   const groups = useMemo(() => {
-    const by: Record<string, Attendance[]> = {};
-    for (const a of attendees) {
-      const d = new Date(a.checkInTime);
+    const buckets = new Map<string, { records: Attendance[]; latestCheckIn: number }>();
+
+    for (const attendance of attendees) {
+      const d = new Date(attendance.checkInTime);
       let key: string;
       if (mode === "day") key = d.toLocaleDateString("es-PE", { year: "numeric", month: "2-digit", day: "2-digit" });
       else if (mode === "month") key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
       else key = `${d.getFullYear()}`;
-      (by[key] ||= []).push(a);
+
+      const current = buckets.get(key);
+      if (current) {
+        current.records.push(attendance);
+        current.latestCheckIn = Math.max(current.latestCheckIn, d.getTime());
+      } else {
+        buckets.set(key, { records: [attendance], latestCheckIn: d.getTime() });
+      }
     }
-    const today = new Date();
-    let todayKey: string;
-    if (mode === "day") todayKey = today.toLocaleDateString("es-PE", { year: "numeric", month: "2-digit", day: "2-digit" });
-    else if (mode === "month") todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
-    else todayKey = `${today.getFullYear()}`;
-    const ordered = Object.entries(by).sort(([a], [b]) => {
-      if (a === todayKey) return -1;
-      if (b === todayKey) return 1;
-      if (a < b) return 1;
-      if (a > b) return -1;
-      return 0;
-    });
-    return ordered;
+
+    return Array.from(buckets.entries())
+      .sort(([, left], [, right]) => right.latestCheckIn - left.latestCheckIn)
+      .map(([label, bucket]) => [label, bucket.records] as [string, Attendance[]]);
   }, [attendees, mode]);
 
   const metrics = useMemo(() => {

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import useSWR from "swr";
 import { 
   Dumbbell, 
   Play, 
@@ -72,54 +73,35 @@ interface RecentWorkout {
   totalSets: number;
 }
 
+async function routineFetcher<T>(url: string): Promise<T> {
+  const response = await fetch(url, { credentials: "include" });
+  if (!response.ok) throw new Error("No se pudieron cargar los datos de entrenamiento");
+  return response.json();
+}
+
 export default function RoutinesTab({ 
   fitnessGoal
 }: RoutinesTabProps) {
-  const [availableExercises, setAvailableExercises] = useState<Exercise[]>([]);
-  const [recentWorkouts, setRecentWorkouts] = useState<RecentWorkout[]>([]);
   const [loading, setLoading] = useState(false);
   const [activeWorkout, setActiveWorkout] = useState<ActiveWorkout | null>(null);
   const [workoutExercises, setWorkoutExercises] = useState<WorkoutExercise[]>([]);
   // Técnica (pendiente de modal en siguiente paso)
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Cargar datos iniciales
-  useEffect(() => {
-    loadRecentWorkouts();
-    loadAvailableExercises();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Recargar ejercicios cuando cambia la búsqueda
-  useEffect(() => {
-    loadAvailableExercises();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchQuery]);
-
-  const loadRecentWorkouts = async () => {
-    try {
-      const response = await fetch('/api/workouts/recent?limit=50');
-      if (response.ok) {
-        const data = await response.json();
-        setRecentWorkouts(data.recentWorkouts || []);
-      }
-    } catch (error) {
-      console.error('Error loading recent workouts:', error);
-    }
-  };
-
-  const loadAvailableExercises = async () => {
-    try {
-      const url = `/api/exercises?published=true&limit=100${searchQuery ? `&query=${encodeURIComponent(searchQuery)}` : ''}`;
-      const response = await fetch(url);
-      if (response.ok) {
-        const data = await response.json();
-        setAvailableExercises(data.items || []);
-      }
-    } catch (error) {
-      console.error('❌ Error loading exercises:', error);
-    }
-  };
+  const exerciseUrl = `/api/exercises?published=true&limit=100${searchQuery ? `&query=${encodeURIComponent(searchQuery)}` : ''}`;
+  const { data: exerciseData, mutate: refreshExercises } = useSWR<{ items: Exercise[] }>(
+    exerciseUrl,
+    routineFetcher,
+    { revalidateOnFocus: false, dedupingInterval: 60_000, keepPreviousData: true },
+  );
+  const { data: recentData, mutate: refreshRecentWorkouts } = useSWR<{
+    recentWorkouts: RecentWorkout[];
+  }>("/api/workouts/recent?limit=50", routineFetcher, {
+    revalidateOnFocus: false,
+    dedupingInterval: 60_000,
+  });
+  const availableExercises = exerciseData?.items ?? [];
+  const recentWorkouts = recentData?.recentWorkouts ?? [];
 
   const startWorkout = async () => {
     setLoading(true);
@@ -241,7 +223,7 @@ export default function RoutinesTab({
         if (response.ok) {
           setActiveWorkout(null);
           setWorkoutExercises([]);
-          await loadRecentWorkouts();
+          await refreshRecentWorkouts();
           
           await Swal.fire({
             title: 'Entrenamiento completado',
@@ -412,7 +394,7 @@ export default function RoutinesTab({
               onChange={(e) => setSearchQuery(e.target.value)}
               className="wolf-control max-w-md"
             />
-            <Button onClick={loadAvailableExercises} className="wolf-button w-full sm:w-auto">Buscar</Button>
+            <Button onClick={() => void refreshExercises()} className="wolf-button w-full sm:w-auto">Buscar</Button>
           </div>
           {loading ? (
             <div className="flex justify-center items-center py-8">

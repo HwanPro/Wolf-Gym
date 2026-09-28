@@ -185,12 +185,8 @@ export default function AddClientDialog({
         phone: normalizePhone(phone),
         message,
         whatsappUrl: `https://wa.me/${normalizePhone(phone)}?text=${encodeURIComponent(message)}`,
+        createdAt: Date.now(),
       };
-
-      const stored = localStorage.getItem("pendingCredentials");
-      const list = stored ? JSON.parse(stored) : [];
-      list.push(cred);
-      localStorage.setItem("pendingCredentials", JSON.stringify(list));
 
       setCredentials(cred);
       onCredentialsUpdate?.(cred);

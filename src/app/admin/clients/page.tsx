@@ -2,7 +2,7 @@
 "use client";
 
 import ConfirmDialog from "@/ui/components/ConfirmDialog";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import useSWR from "swr";
 import { Button } from "@/ui/button";
@@ -30,6 +30,10 @@ import {
   DebtManagement,
   EditClientDialog,
 } from "@/features/clients";
+import FingerprintCaptureDialog, {
+  type FingerprintCapturePhase,
+} from "@/features/clients/components/FingerprintCaptureDialog";
+import type { PendingCredential } from "@/features/clients/types";
 import Link from "next/link";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -84,8 +88,9 @@ interface Client {
   phone: string;
   emergencyPhone: string;
   documentNumber: string;
-  prodfile_adress: string;
-  profile_social: string;
+  address: string;
+  social: string;
+  image?: string;
   hasPaid: boolean;
   password?: string;
   hasFingerprint?: boolean;
@@ -101,6 +106,7 @@ interface ApiClient {
     id?: string;
     role?: string;
     username?: string;
+    image?: string | null;
     createdAt?: string | Date;
     fingerprints?: Array<{ id: string }>;
     attendances?: Array<{ checkInTime: string | Date; channel: string }>;
@@ -203,8 +209,9 @@ export default function ClientsPage() {
             phone: c.profile_phone || "",
             emergencyPhone: c.profile_emergency_phone || "",
             documentNumber: c.documentNumber || "",
-            prodfile_adress: c.profile_address || "",
-            profile_social: c.profile_social || "",
+            address: c.profile_address || "",
+            social: c.profile_social || "",
+            image: c.user?.image || undefined,
             hasPaid: false,
             createdAt: c.user?.createdAt
               ? new Date(c.user.createdAt).toISOString().split("T")[0]
@@ -271,6 +278,11 @@ export default function ClientsPage() {
     profileId: string;
   } | null>(null);
   const [deleting, setDeleting] = useState<Record<string, boolean>>({});
+  const [fingerprintCapture, setFingerprintCapture] = useState<{
+    open: boolean;
+    phase: FingerprintCapturePhase;
+    image?: string;
+  }>({ open: false, phase: "ready" });
 
   const clients = clientsData;
   const totalClients = clients.length;
@@ -409,27 +421,16 @@ export default function ClientsPage() {
   }
 
   const [pendingCredentials, setPendingCredentials] = useState<
-    Array<{
-      username: string;
-      password: string;
-      phone: string;
-      message?: string;
-      whatsappUrl?: string | null;
-    }>
+    PendingCredential[]
   >([]);
 
-  const persistPendingCredentials = (
-    updater: Array<{
-      username: string;
-      password: string;
-      phone: string;
-      message?: string;
-      whatsappUrl?: string | null;
-    }>,
-  ) => {
-    localStorage.setItem("pendingCredentials", JSON.stringify(updater));
-    setPendingCredentials(updater);
-  };
+  const addPendingCredential = useCallback((credential: PendingCredential) => {
+    const next = { ...credential, createdAt: credential.createdAt ?? Date.now() };
+    setPendingCredentials((current) => [
+      next,
+      ...current.filter((item) => item.username !== next.username),
+    ].slice(0, 10));
+  }, []);
 
   const swalBase: SwalBase = useMemo(
     () => ({
@@ -445,27 +446,14 @@ export default function ClientsPage() {
   );
 
   useEffect(() => {
-    const stored = localStorage.getItem("pendingCredentials");
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed))
-          setPendingCredentials(parsed.filter(Boolean));
-      } catch (error) {
-        console.error("Error al parsear pendingCredentials:", error);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === "pendingCredentials") {
-        const stored = localStorage.getItem("pendingCredentials");
-        setPendingCredentials(stored ? JSON.parse(stored) : []);
-      }
-    };
-    window.addEventListener("storage", handleStorageChange);
-    return () => window.removeEventListener("storage", handleStorageChange);
+    localStorage.removeItem("pendingCredentials");
+    const interval = window.setInterval(() => {
+      const cutoff = Date.now() - 15 * 60_000;
+      setPendingCredentials((current) =>
+        current.filter((credential) => (credential.createdAt ?? 0) >= cutoff),
+      );
+    }, 60_000);
+    return () => window.clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -552,15 +540,20 @@ export default function ClientsPage() {
         throw new Error(
           data?.error || "No se pudieron generar las credenciales",
         );
+      if (data.mode === "verified-email") {
+        toast.info(`${data.message} Correo: ${data.email}`);
+        return;
+      }
       const cred = {
         username: String(data.username || client.userName),
         password: String(data.password || ""),
         phone: String(data.phone || client.phone || ""),
         message: String(data.message || ""),
         whatsappUrl: data.whatsappUrl ?? null,
+        createdAt: Date.now(),
       };
-      persistPendingCredentials([cred, ...pendingCredentials]);
-      toast.success("Credenciales generadas");
+      addPendingCredential(cred);
+      toast.success("Contraseña temporal generada; se mostrará durante 15 minutos");
       if (cred.whatsappUrl) window.open(cred.whatsappUrl, "_blank");
     } catch (error) {
       console.error("Enviar credenciales:", error);
@@ -627,59 +620,30 @@ export default function ClientsPage() {
         });
         if (!ask.isConfirmed) return;
       }
-      await Swal.fire({
-        ...swalBase,
-        title: "Coloca tu dedo",
-        text: "Manténlo firme hasta que termine la captura",
-        icon: "info",
-        timer: 2200,
-        showConfirmButton: false,
-        allowOutsideClick: false,
-      });
-      Swal.fire({
-        ...swalBase,
-        title: "Capturando huella...",
-        allowOutsideClick: false,
-        showConfirmButton: false,
-        didOpen: () => Swal.showLoading(),
-      });
+      setFingerprintCapture({ open: true, phase: "ready" });
+      await new Promise((resolve) => window.setTimeout(resolve, 1200));
+      setFingerprintCapture({ open: true, phase: "capturing" });
       let template: string;
       let image: string | undefined;
       try {
         const capture = await captureOnce();
         template = capture.template;
         image = capture.image;
-        await Swal.fire({
-          ...swalBase,
-          title: "✓ Huella capturada correctamente",
-          html: image
-            ? `<img src="data:image/bmp;base64,${image}" style="max-width:250px; margin:10px auto; display:block; border:2px solid #22c55e; border-radius:8px;" alt="Huella capturada"/>`
-            : undefined,
-          text: !image ? "Guardando la huella..." : "",
-          icon: "success",
-          timer: image ? 1600 : 900,
-          showConfirmButton: false,
-        });
+        setFingerprintCapture({ open: true, phase: "saving", image });
       } catch (error) {
+        setFingerprintCapture({ open: false, phase: "ready" });
         const errorMessage =
           error instanceof Error
             ? error.message
             : "No se pudo capturar la huella";
         await Swal.fire({
           ...swalBase,
-          title: "❌ Error al capturar huella",
+          title: "Error al capturar huella",
           text: errorMessage,
           icon: "error" as const,
         });
         return;
       }
-      Swal.fire({
-        ...swalBase,
-        title: "Guardando huella…",
-        allowOutsideClick: false,
-        showConfirmButton: false,
-        didOpen: () => Swal.showLoading(),
-      });
       const res = await fetch(`/api/biometric/register/${userId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -689,9 +653,10 @@ export default function ClientsPage() {
         .json()
         .catch(() => ({ ok: false }));
       if (!res.ok || !jr?.ok) {
+        setFingerprintCapture({ open: false, phase: "ready" });
         return Swal.fire({
           ...swalBase,
-          title: "❌ Error al registrar huella",
+          title: "Error al registrar huella",
           text:
             jr?.message ||
             "No se pudo completar el registro. Por favor, inténtalo nuevamente.",
@@ -699,14 +664,11 @@ export default function ClientsPage() {
         });
       }
       setFpStatus((s) => ({ ...s, [userId]: true }));
-      return Swal.fire({
-        ...swalBase,
-        title: "✅ " + (jr?.message || "Huella registrada exitosamente"),
-        text: "El cliente puede ahora usar su huella para registrar asistencia",
-        icon: "success",
-        timer: 2500,
-        showConfirmButton: false,
-      });
+      setFingerprintCapture({ open: true, phase: "success", image });
+      await new Promise((resolve) => window.setTimeout(resolve, 1800));
+      setFingerprintCapture({ open: false, phase: "ready" });
+      toast.success(jr?.message || "Huella registrada exitosamente");
+      return;
     } catch (error) {
       const errorMessage =
         error instanceof Error
@@ -714,12 +676,15 @@ export default function ClientsPage() {
           : "Error desconocido al procesar la huella";
       await Swal.fire({
         ...swalBase,
-        title: "❌ Error al procesar huella",
+        title: "Error al procesar huella",
         text: errorMessage,
         icon: "error" as const,
       });
       return;
     } finally {
+      setFingerprintCapture((current) =>
+        current.phase === "success" ? current : { open: false, phase: "ready" },
+      );
       setBusy((b) => ({ ...b, [userId]: false }));
     }
   };
@@ -1151,10 +1116,7 @@ export default function ClientsPage() {
                         return await handleAddClient(newClient);
                       }}
                       onCredentialsUpdate={(cred) =>
-                        persistPendingCredentials([
-                          { ...cred },
-                          ...pendingCredentials,
-                        ])
+                        addPendingCredential(cred)
                       }
                     />
                   </div>
@@ -1799,13 +1761,24 @@ export default function ClientsPage() {
                 letterSpacing: "0.04em",
               }}
             >
-              Accesos pendientes
+              Credenciales temporales
             </h2>
           </div>
+          <p
+            style={{
+              margin: "-8px 0 16px",
+              color: W.faint,
+              fontSize: 12,
+              lineHeight: 1.5,
+            }}
+          >
+            Se muestran solo en esta pestaña durante 15 minutos. No se guardan en el navegador.
+            Las cuentas con correo verificado usan recuperación por correo y no se restablecen aquí.
+          </p>
           {pendingCredentials.length > 0 ? (
             pendingCredentials.map((cred, index) => (
               <div
-                key={index}
+                key={cred.username}
                 style={{
                   marginBottom: 12,
                   background: W.graph,
@@ -1892,14 +1865,9 @@ export default function ClientsPage() {
                   <Button
                     className="bg-red-500 text-white hover:bg-red-600"
                     onClick={() => {
-                      const updated = pendingCredentials.filter(
-                        (_, i) => i !== index,
+                      setPendingCredentials((current) =>
+                        current.filter((_, itemIndex) => itemIndex !== index),
                       );
-                      localStorage.setItem(
-                        "pendingCredentials",
-                        JSON.stringify(updated),
-                      );
-                      setPendingCredentials(updated);
                     }}
                   >
                     Eliminar
@@ -1916,11 +1884,17 @@ export default function ClientsPage() {
                 padding: "16px 0",
               }}
             >
-              No hay accesos pendientes.
+              No hay credenciales temporales por entregar.
             </p>
           )}
         </section>
       </main>
+
+      <FingerprintCaptureDialog
+        open={fingerprintCapture.open}
+        phase={fingerprintCapture.phase}
+        image={fingerprintCapture.image}
+      />
 
       {isPageLoading && (
         <div

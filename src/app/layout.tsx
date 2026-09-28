@@ -134,7 +134,14 @@ export default function RootLayout({
   };
 
   return (
-    <html lang="es" className={`${geistSans.variable} ${geistMono.variable}`}>
+    <html
+      lang="es"
+      className={`${geistSans.variable} ${geistMono.variable}`}
+      suppressHydrationWarning
+    >
+      <head>
+        <meta name="darkreader-lock" />
+      </head>
       <body className="min-h-dvh overflow-x-hidden bg-background font-sans text-foreground antialiased">
         <script
           type="application/ld+json"

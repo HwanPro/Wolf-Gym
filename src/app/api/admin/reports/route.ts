@@ -28,6 +28,20 @@ function toNumber(value: unknown) {
   return Number(value ?? 0);
 }
 
+function profileLabel(profile: {
+  profile_id: string;
+  profile_first_name: string | null;
+  profile_last_name: string | null;
+  user?: { username?: string | null } | null;
+}) {
+  const fullName = `${profile.profile_first_name ?? ""} ${profile.profile_last_name ?? ""}`.trim();
+  return fullName || profile.user?.username || `Perfil ${profile.profile_id.slice(0, 8)}`;
+}
+
+function shortDate(value: Date | null) {
+  return value ? value.toISOString().slice(0, 10) : "sin fecha";
+}
+
 function pushIssue(
   issues: Inconsistency[],
   issue: Omit<Inconsistency, "samples"> & { samples?: string[] }
@@ -131,7 +145,7 @@ export async function GET(request: NextRequest) {
           profile_phone: true,
           debt: true,
           user: {
-            select: { role: true },
+            select: { role: true, username: true },
           },
         },
       }),
@@ -264,7 +278,7 @@ export async function GET(request: NextRequest) {
       count: clientsWithoutPlan.length,
       description:
         "Clientes con perfil creado pero sin plan de membresía definido.",
-      samples: clientsWithoutPlan.map((profile) => profile.profile_id),
+      samples: clientsWithoutPlan.map((profile) => profileLabel(profile)),
     });
 
     const clientsWithInvalidRange = clientProfiles.filter((profile) => {
@@ -278,7 +292,10 @@ export async function GET(request: NextRequest) {
       count: clientsWithInvalidRange.length,
       description:
         "La fecha de inicio es posterior a la fecha fin en el perfil del cliente.",
-      samples: clientsWithInvalidRange.map((profile) => profile.profile_id),
+      samples: clientsWithInvalidRange.map(
+        (profile) =>
+          `${profileLabel(profile)}: ${shortDate(profile.profile_start_date)} > ${shortDate(profile.profile_end_date)}`,
+      ),
     });
 
     const clientsWithPartialDates = clientProfiles.filter((profile) =>
@@ -291,7 +308,10 @@ export async function GET(request: NextRequest) {
       count: clientsWithPartialDates.length,
       description:
         "Perfiles con solo fecha de inicio o solo fecha de fin, lo que afecta reportes y vencimientos.",
-      samples: clientsWithPartialDates.map((profile) => profile.profile_id),
+      samples: clientsWithPartialDates.map((profile) => {
+        const missing = profile.profile_start_date ? "falta fecha de fin" : "falta fecha de inicio";
+        return `${profileLabel(profile)}: ${missing}`;
+      }),
     });
 
     const clientsWithoutIdentity = clientProfiles.filter(
@@ -305,7 +325,7 @@ export async function GET(request: NextRequest) {
       count: clientsWithoutIdentity.length,
       description:
         "Perfiles de cliente con nombre o apellido vacío.",
-      samples: clientsWithoutIdentity.map((profile) => profile.profile_id),
+      samples: clientsWithoutIdentity.map((profile) => profileLabel(profile)),
     });
 
     const productsNegativeStock = products.filter(

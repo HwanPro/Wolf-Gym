@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FileJson, FileSpreadsheet, RefreshCw } from "lucide-react";
+import { saveAs } from "file-saver";
 import { useRouter } from "next/navigation";
 
 type Severity = "high" | "medium" | "low";
@@ -93,15 +94,16 @@ export default function AdminReportes() {
   const [report, setReport] = useState<ReportData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [exportingExcel, setExportingExcel] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const redirectToLogin = () => {
+  const redirectToLogin = useCallback(() => {
     if (isRedirecting.current) return;
     isRedirecting.current = true;
     router.replace("/auth/login");
-  };
+  }, [router]);
 
-  const fetchReport = async (silent = false) => {
+  const fetchReport = useCallback(async (silent = false) => {
     if (silent) setRefreshing(true);
     else setLoading(true);
     try {
@@ -118,13 +120,13 @@ export default function AdminReportes() {
       if (silent) setRefreshing(false);
       else setLoading(false);
     }
-  };
+  }, [redirectToLogin]);
 
   useEffect(() => {
     fetchReport(false);
     const interval = setInterval(() => fetchReport(true), 300000);
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchReport]);
 
   const downloadReportJson = () => {
     if (!report) return;
@@ -137,6 +139,129 @@ export default function AdminReportes() {
     link.click();
     link.remove();
     URL.revokeObjectURL(url);
+  };
+
+  const downloadReportExcel = async () => {
+    if (!report || exportingExcel) return;
+    setExportingExcel(true);
+    try {
+      const ExcelJS = await import("exceljs");
+      const workbook = new ExcelJS.Workbook();
+      workbook.creator = "Wolf Gym";
+      workbook.created = new Date(report.generatedAt);
+      workbook.subject = "Reporte administrativo";
+
+      const addSheet = (
+        name: string,
+        headers: string[],
+        rows: Array<Array<string | number>>,
+      ) => {
+        const sheet = workbook.addWorksheet(name, {
+          views: [{ state: "frozen", ySplit: 3 }],
+        });
+        const lastColumn = Math.max(1, headers.length);
+        sheet.mergeCells(1, 1, 1, lastColumn);
+        const title = sheet.getCell(1, 1);
+        title.value = "WOLF GYM · REPORTE ADMINISTRATIVO";
+        title.font = { bold: true, size: 16, color: { argb: "FF0A0A0A" } };
+        title.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFC21A" } };
+        title.alignment = { vertical: "middle", horizontal: "left" };
+        sheet.getRow(1).height = 26;
+
+        sheet.mergeCells(2, 1, 2, lastColumn);
+        const generated = sheet.getCell(2, 1);
+        generated.value = `Generado: ${new Date(report.generatedAt).toLocaleString("es-PE")}`;
+        generated.font = { italic: true, color: { argb: "FF666666" } };
+
+        const headerRow = sheet.addRow(headers);
+        headerRow.eachCell((cell) => {
+          cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF141414" } };
+          cell.alignment = { vertical: "middle" };
+        });
+        headerRow.height = 22;
+
+        rows.forEach((row) => sheet.addRow(row));
+        headers.forEach((header, index) => {
+          sheet.getColumn(index + 1).width = Math.min(
+            46,
+            Math.max(
+              14,
+              header.length + 3,
+              ...rows.map((row) => String(row[index] ?? "").length + 2),
+            ),
+          );
+        });
+        sheet.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3, column: lastColumn } };
+        sheet.eachRow((row, rowNumber) => {
+          if (rowNumber <= 3) return;
+          row.eachCell((cell) => {
+            cell.alignment = { vertical: "top", wrapText: true };
+            cell.border = { bottom: { style: "hair", color: { argb: "FFD9D9D9" } } };
+          });
+        });
+        return sheet;
+      };
+
+      addSheet("Resumen", ["Indicador", "Valor"], [
+        ["Ingresos totales", report.overview.totalIncome],
+        ["Ventas de productos", report.overview.productSales],
+        ["Nuevos clientes", report.overview.newClients],
+        ["Asistencia hoy", report.overview.todayAttendance],
+        ["Membresías activas", report.overview.activeMemberships],
+        ["Calidad de datos", `${report.dataQuality.score}/100`],
+        ["Productos", report.inventory.totalProducts],
+        ["Productos con stock bajo", report.inventory.lowStockProducts],
+        ["Productos sin stock", report.inventory.outOfStockProducts],
+        ["Clientes con deuda", report.debts.clientsWithDebt],
+        ["Monto adeudado", report.debts.totalDebt],
+      ]);
+      addSheet(
+        "Ingresos",
+        ["Periodo", "Ingresos (PEN)"],
+        report.trends.incomeTrend.map((item) => [item.period, item.total]),
+      );
+      addSheet(
+        "Asistencia",
+        ["Fecha", "Marcaciones"],
+        report.trends.attendanceTrend.map((item) => [item.day, item.count]),
+      );
+      addSheet(
+        "Planes",
+        ["Plan", "Clientes"],
+        report.distributions.planDistribution.map((item) => [item.plan, item.count]),
+      );
+      addSheet(
+        "Productos",
+        ["Producto", "Cantidad", "Ingresos (PEN)"],
+        report.distributions.topProducts.map((item) => [item.name, item.quantity, item.revenue]),
+      );
+      addSheet(
+        "Calidad de datos",
+        ["Severidad", "Hallazgo", "Casos", "Descripción", "Muestras"],
+        report.dataQuality.inconsistencies.map((item) => [
+          item.severity.toUpperCase(),
+          item.title,
+          item.count,
+          item.description,
+          item.samples.join("; "),
+        ]),
+      );
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const date = new Date(report.generatedAt).toISOString().slice(0, 10);
+      saveAs(
+        new Blob([buffer as BlobPart], {
+          type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        }),
+        `wolf-gym-reporte-${date}.xlsx`,
+      );
+    } catch (exportError) {
+      console.error("Error exportando reporte Excel:", exportError);
+      setError("No se pudo generar el archivo Excel.");
+    } finally {
+      setExportingExcel(false);
+    }
   };
 
   const maxIncome = useMemo(() => {
@@ -156,6 +281,7 @@ export default function AdminReportes() {
 
   return (
     <div
+      className="admin-reports"
       style={{
         minHeight: "100vh",
         background: "#0A0A0A",
@@ -163,10 +289,25 @@ export default function AdminReportes() {
         fontFamily: "'Inter', system-ui, sans-serif",
       }}
     >
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&display=swap');`}</style>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&display=swap');
+        @media (max-width: 900px) {
+          .reports-overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+          .reports-two-grid, .reports-wide-grid { grid-template-columns: minmax(0, 1fr) !important; }
+        }
+        @media (max-width: 600px) {
+          .reports-header { align-items: flex-start !important; padding: 20px 16px 16px !important; }
+          .reports-actions { width: 100%; }
+          .reports-actions > * { flex: 1 1 auto; justify-content: center; }
+          .reports-content { padding: 16px !important; }
+          .reports-overview-grid { grid-template-columns: minmax(0, 1fr) !important; }
+          .reports-card { padding: 16px !important; }
+        }
+      `}</style>
 
       {/* Page header */}
       <div
+        className="reports-header"
         style={{
           padding: "24px 32px 20px",
           borderBottom: "1px solid rgba(255,194,26,0.12)",
@@ -197,7 +338,7 @@ export default function AdminReportes() {
             </p>
           )}
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div className="reports-actions" style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
           <a
             href="/admin/dashboard"
             style={{
@@ -242,8 +383,8 @@ export default function AdminReportes() {
           </button>
           <button
             type="button"
-            onClick={downloadReportJson}
-            disabled={!report}
+            onClick={downloadReportExcel}
+            disabled={!report || exportingExcel}
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -256,17 +397,44 @@ export default function AdminReportes() {
               borderRadius: 10,
               fontSize: 13,
               fontWeight: 700,
+              cursor: report && !exportingExcel ? "pointer" : "not-allowed",
+              opacity: report && !exportingExcel ? 1 : 0.5,
+              fontFamily: "'Inter', system-ui, sans-serif",
+            }}
+            title="Descargar un libro de Excel con hojas y encabezados"
+          >
+            <FileSpreadsheet style={{ width: 15, height: 15 }} />
+            {exportingExcel ? "Generando" : "Exportar Excel"}
+          </button>
+          <button
+            type="button"
+            onClick={downloadReportJson}
+            disabled={!report}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              height: 38,
+              padding: "0 14px",
+              background: "transparent",
+              color: "rgba(255,255,255,0.72)",
+              border: "1px solid rgba(255,255,255,0.15)",
+              borderRadius: 10,
+              fontSize: 13,
+              fontWeight: 600,
               cursor: report ? "pointer" : "not-allowed",
               opacity: report ? 1 : 0.5,
               fontFamily: "'Inter', system-ui, sans-serif",
             }}
+            title="Descargar los datos sin formato en JSON"
           >
-            ↓ Exportar JSON
+            <FileJson style={{ width: 15, height: 15 }} />
+            JSON
           </button>
         </div>
       </div>
 
-      <div style={{ padding: "24px 32px", display: "flex", flexDirection: "column", gap: 18 }}>
+      <div className="reports-content" style={{ padding: "24px 32px", display: "flex", flexDirection: "column", gap: 18 }}>
         {loading && (
           <div
             style={{
@@ -297,7 +465,7 @@ export default function AdminReportes() {
         {!loading && !error && report && (
           <>
             {/* Overview metrics — 5 columns */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12 }}>
+            <div className="reports-overview-grid" style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12 }}>
               {[
                 { label: "Ingresos totales", value: formatMoney(report.overview.totalIncome), yellow: true },
                 { label: "Ventas productos", value: formatMoney(report.overview.productSales), yellow: true },
@@ -342,7 +510,7 @@ export default function AdminReportes() {
             </div>
 
             {/* Inventory + Debts */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+            <div className="reports-two-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
               <div style={card}>
                 <p style={eyebrow}>Inventario</p>
                 <h3 style={cardTitle}>ESTADO DEL STOCK</h3>
@@ -455,7 +623,7 @@ export default function AdminReportes() {
                     </h3>
                   </div>
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div className="reports-two-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                   {report.dataQuality.inconsistencies.map((issue) => {
                     const sc = severityColor(issue.severity);
                     return (
@@ -501,7 +669,7 @@ export default function AdminReportes() {
             )}
 
             {/* Trends */}
-            <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: 14 }}>
+            <div className="reports-wide-grid" style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: 14 }}>
               {/* Income trend bar chart */}
               <div style={card}>
                 <p style={eyebrow}>Últimos 6 meses</p>
@@ -601,7 +769,7 @@ export default function AdminReportes() {
             </div>
 
             {/* Attendance trend + Top products */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+            <div className="reports-two-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
               <div style={card}>
                 <p style={eyebrow}>Últimos 14 días</p>
                 <h3 style={cardTitle}>ASISTENCIA DIARIA</h3>

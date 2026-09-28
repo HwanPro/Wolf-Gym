@@ -9,32 +9,34 @@ datasource db {
 }
 
 model User {
-  id                  String                       @id @default(cuid())
-  phoneNumber         String                       @unique
-  image               String?
-  role                String                       @default("client")
-  password            String?
-  otpCode             String?
-  twoFASecret         String?
-  createdAt           DateTime                     @default(now())
-  updatedAt           DateTime                     @updatedAt
-  lastName            String                       @default("")
-  username            String                       @unique
-  firstName           String                       @default("Sin nombre")
-  accounts            Account[]
-  attendances         Attendance[]                 @relation("UserAttendance")
-  profile             ClientProfile?
-  payments            PaymentRecord[]              @relation("UserPayments")
-  purchases           Purchase[]
-  sessions            Session[]
-  contacts            UserContact[]                @relation("UserContacts")
-  memberships         UserMembershipPlan[]
-  progressSuggestions ExerciseProgressSuggestion[] @relation("UserProgressSuggestions")
-  fingerprints        Fingerprint[]
-  programAssignments  UserProgramAssignment[]      @relation("UserProgramAssignments")
-  routineAssignments  UserRoutineAssignment[]      @relation("UserRoutineAssignments")
-  workoutSessions     WorkoutSession[]             @relation("UserWorkoutSessions")
+  id                   String                       @id @default(cuid())
+  phoneNumber          String                       @unique
+  image                String?
+  role                 String                       @default("client")
+  password             String?
+  otpCode              String?
+  twoFASecret          String?
+  createdAt            DateTime                     @default(now())
+  updatedAt            DateTime                     @updatedAt
+  lastName             String                       @default("")
+  username             String                       @unique
+  firstName            String                       @default("Sin nombre")
+  accounts             Account[]
+  attendances          Attendance[]                 @relation("UserAttendance")
+  profile              ClientProfile?
+  payments             PaymentRecord[]              @relation("UserPayments")
+  purchases            Purchase[]
+  sessions             Session[]
+  contacts             UserContact[]                @relation("UserContacts")
+  memberships          UserMembershipPlan[]
+  progressSuggestions  ExerciseProgressSuggestion[] @relation("UserProgressSuggestions")
+  fingerprints         Fingerprint[]
+  programAssignments   UserProgramAssignment[]      @relation("UserProgramAssignments")
+  routineAssignments   UserRoutineAssignment[]      @relation("UserRoutineAssignments")
+  workoutSessions      WorkoutSession[]             @relation("UserWorkoutSessions")
   passwordResetToken   PasswordResetToken?
+  nutritionProfile     NutritionProfile?
+  nutritionAssignments NutritionPlanAssignment[]    @relation("UserNutritionAssignments")
 
   @@map("users")
 }
@@ -499,6 +501,217 @@ model ExerciseProgressSuggestion {
   @@map("exercise_progress_suggestions")
 }
 
+model NutritionProfile {
+  id                         String                  @id @default(cuid())
+  userId                     String                  @unique
+  usesBodyWeight             Boolean                 @default(false)
+  birthDate                  DateTime?
+  sexForEquation             NutritionSex?
+  heightCm                   Decimal?                @db.Decimal(6, 2)
+  currentWeightKg            Decimal?                @db.Decimal(6, 2)
+  activityLevel              NutritionActivityLevel?
+  objective                  NutritionGoal?
+  allergies                  String[]
+  dietaryRestrictions        String[]
+  dislikedFoods              String[]
+  consentToHealthData        Boolean                 @default(false)
+  consentRecordedAt          DateTime?
+  requiresProfessionalReview Boolean                 @default(false)
+  createdAt                  DateTime                @default(now())
+  updatedAt                  DateTime                @updatedAt
+  user                       User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  measurements               NutritionMeasurement[]
+
+  @@map("nutrition_profiles")
+}
+
+model NutritionMeasurement {
+  id             String           @id @default(cuid())
+  profileId      String
+  measuredAt     DateTime         @default(now())
+  weightKg       Decimal?         @db.Decimal(6, 2)
+  waistCm        Decimal?         @db.Decimal(6, 2)
+  bodyFatPercent Decimal?         @db.Decimal(5, 2)
+  source         String           @default("manual")
+  createdAt      DateTime         @default(now())
+  profile        NutritionProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId, measuredAt])
+  @@map("nutrition_measurements")
+}
+
+model NutritionFood {
+  id             String                 @id @default(cuid())
+  name           String
+  normalizedName String
+  category       String?
+  preparation    String?
+  source         String                 @default("custom")
+  sourceCode     String?
+  referenceGrams Decimal                @default(100) @db.Decimal(8, 2)
+  calories       Decimal?               @db.Decimal(8, 2)
+  proteinG       Decimal?               @db.Decimal(8, 2)
+  carbohydrateG  Decimal?               @db.Decimal(8, 2)
+  fatG           Decimal?               @db.Decimal(8, 2)
+  fiberG         Decimal?               @db.Decimal(8, 2)
+  sodiumMg       Decimal?               @db.Decimal(10, 2)
+  isActive       Boolean                @default(true)
+  createdBy      String?
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  portions       NutritionFoodPortion[]
+  mealItems      NutritionMealItem[]
+
+  @@index([normalizedName])
+  @@index([source, sourceCode])
+  @@map("nutrition_foods")
+}
+
+model NutritionFoodPortion {
+  id        String        @id @default(cuid())
+  foodId    String
+  name      String
+  grams     Decimal       @db.Decimal(8, 2)
+  isDefault Boolean       @default(false)
+  food      NutritionFood @relation(fields: [foodId], references: [id], onDelete: Cascade)
+
+  @@unique([foodId, name])
+  @@index([foodId])
+  @@map("nutrition_food_portions")
+}
+
+model NutritionPlan {
+  id          String                 @id @default(cuid())
+  name        String
+  description String?
+  objective   NutritionGoal
+  createdBy   String
+  isArchived  Boolean                @default(false)
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+  versions    NutritionPlanVersion[]
+
+  @@index([createdBy, isArchived])
+  @@map("nutrition_plans")
+}
+
+model NutritionPlanVersion {
+  id                       String                    @id @default(cuid())
+  planId                   String
+  version                  Int
+  mode                     NutritionPlanMode
+  energyMode               NutritionEnergyMode
+  targetCalories           Int?
+  targetProteinG           Decimal?                  @db.Decimal(8, 2)
+  targetCarbohydrateG      Decimal?                  @db.Decimal(8, 2)
+  targetFatG               Decimal?                  @db.Decimal(8, 2)
+  targetFiberG             Decimal?                  @db.Decimal(8, 2)
+  durationWeeks            Int?
+  professionalNotes        String?
+  professionalName         String?
+  professionalRegistration String?
+  calculationMethod        String?
+  calculationSnapshot      Json?
+  isPublished              Boolean                   @default(false)
+  publishedAt              DateTime?
+  createdAt                DateTime                  @default(now())
+  plan                     NutritionPlan             @relation(fields: [planId], references: [id], onDelete: Cascade)
+  days                     NutritionPlanDay[]
+  assignments              NutritionPlanAssignment[]
+
+  @@unique([planId, version])
+  @@index([planId, isPublished])
+  @@map("nutrition_plan_versions")
+}
+
+model NutritionPlanDay {
+  id        String               @id @default(cuid())
+  versionId String
+  dayIndex  Int
+  label     String?
+  notes     String?
+  version   NutritionPlanVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  meals     NutritionMeal[]
+
+  @@unique([versionId, dayIndex])
+  @@map("nutrition_plan_days")
+}
+
+model NutritionMeal {
+  id            String              @id @default(cuid())
+  dayId         String
+  name          String
+  suggestedTime String?
+  sortOrder     Int                 @default(0)
+  instructions  String?
+  day           NutritionPlanDay    @relation(fields: [dayId], references: [id], onDelete: Cascade)
+  items         NutritionMealItem[]
+
+  @@index([dayId, sortOrder])
+  @@map("nutrition_meals")
+}
+
+model NutritionMealItem {
+  id               String                 @id @default(cuid())
+  mealId           String
+  foodId           String?
+  name             String
+  quantity         Decimal?               @db.Decimal(8, 2)
+  unit             NutritionQuantityUnit?
+  gramsEquivalent  Decimal?               @db.Decimal(8, 2)
+  displayAmount    String?
+  calories         Decimal?               @db.Decimal(8, 2)
+  proteinG         Decimal?               @db.Decimal(8, 2)
+  carbohydrateG    Decimal?               @db.Decimal(8, 2)
+  fatG             Decimal?               @db.Decimal(8, 2)
+  notes            String?
+  alternativeGroup String?
+  isAlternative    Boolean                @default(false)
+  sortOrder        Int                    @default(0)
+  meal             NutritionMeal          @relation(fields: [mealId], references: [id], onDelete: Cascade)
+  food             NutritionFood?         @relation(fields: [foodId], references: [id], onDelete: SetNull)
+
+  @@index([mealId, sortOrder])
+  @@index([foodId])
+  @@map("nutrition_meal_items")
+}
+
+model NutritionPlanAssignment {
+  id         String                    @id @default(cuid())
+  userId     String
+  versionId  String
+  startsAt   DateTime
+  endsAt     DateTime?
+  status     NutritionAssignmentStatus @default(ACTIVE)
+  notes      String?
+  assignedBy String
+  createdAt  DateTime                  @default(now())
+  updatedAt  DateTime                  @updatedAt
+  user       User                      @relation("UserNutritionAssignments", fields: [userId], references: [id], onDelete: Cascade)
+  version    NutritionPlanVersion      @relation(fields: [versionId], references: [id], onDelete: Restrict)
+  checkIns   NutritionCheckIn[]
+
+  @@index([userId, status, startsAt])
+  @@index([versionId])
+  @@map("nutrition_plan_assignments")
+}
+
+model NutritionCheckIn {
+  id               String                  @id @default(cuid())
+  assignmentId     String
+  recordedAt       DateTime                @default(now())
+  weightKg         Decimal?                @db.Decimal(6, 2)
+  adherencePercent Int?
+  hungerLevel      Int?
+  energyLevel      Int?
+  notes            String?
+  createdBy        String
+  assignment       NutritionPlanAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  @@index([assignmentId, recordedAt])
+  @@map("nutrition_check_ins")
+}
+
 enum PaymentMethod {
   CASH
   CARD
@@ -530,4 +743,56 @@ enum ProductType {
   PRE_WORKOUT_5
   PRE_WORKOUT_10
   CUSTOM
+}
+
+enum NutritionPlanMode {
+  QUANTIFIED
+  PORTIONS
+  QUALITATIVE
+  HYBRID
+}
+
+enum NutritionGoal {
+  FAT_LOSS
+  MAINTENANCE
+  MUSCLE_GAIN
+  PERFORMANCE
+  HEALTH_HABITS
+  CUSTOM
+}
+
+enum NutritionEnergyMode {
+  CALCULATED
+  MANUAL
+  NOT_TRACKED
+}
+
+enum NutritionSex {
+  FEMALE
+  MALE
+}
+
+enum NutritionActivityLevel {
+  SEDENTARY
+  LOW_ACTIVE
+  ACTIVE
+  VERY_ACTIVE
+}
+
+enum NutritionQuantityUnit {
+  GRAM
+  MILLILITER
+  PORTION
+  UNIT
+  CUP
+  TABLESPOON
+  TEASPOON
+  VISUAL
+}
+
+enum NutritionAssignmentStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELLED
 }

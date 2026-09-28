@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import useSWR from "swr";
 import { Button } from "@/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/ui/tabs";
 import ProfileModal from "@/ui/components/ProfileModal";
@@ -15,6 +16,7 @@ import {
   Crown,
   Dumbbell,
   Edit2,
+  LockKeyhole,
   LogOut,
   Phone,
   Salad,
@@ -71,6 +73,21 @@ interface SubscriptionState {
   endDate: Date | null;
 }
 
+class ClientDataError extends Error {
+  constructor(message: string, public status: number) {
+    super(message);
+  }
+}
+
+async function clientDataFetcher(url: string): Promise<ClientData> {
+  const response = await fetch(url, { credentials: "include", cache: "no-store" });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new ClientDataError(data?.error || "Error al obtener datos del cliente", response.status);
+  }
+  return data;
+}
+
 function formatDate(date?: Date | string | null) {
   if (!date) return "Sin fecha";
   const parsed = typeof date === "string" ? new Date(date) : date;
@@ -92,36 +109,30 @@ function getInitials(firstName?: string, lastName?: string) {
 }
 
 export default function ClientDashboard() {
-  const [clientData, setClientData] = useState<ClientData | null>(null);
   const [isProfileModalOpen, setProfileModalOpen] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [fitnessGoal, setFitnessGoal] = useState<string>("strength");
   const [bodyFocus, setBodyFocus] = useState<string>("full");
   const router = useRouter();
+  const {
+    data: clientData,
+    error,
+    isLoading,
+    mutate,
+  } = useSWR<ClientData, ClientDataError>("/api/user/me", clientDataFetcher, {
+    refreshInterval: 30_000,
+    revalidateOnFocus: false,
+    revalidateOnReconnect: true,
+    keepPreviousData: true,
+    dedupingInterval: 15_000,
+  });
 
   const fetchClientData = useCallback(async () => {
-    try {
-      setErrorMessage(null);
-      const res = await fetch("/api/user/me", { credentials: "include", cache: "no-store" });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        if (res.status === 401) { router.push("/"); return; }
-        throw new Error(data?.error || "Error al obtener datos del cliente");
-      }
-      setClientData(data);
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Error al cargar datos");
-    } finally {
-      setIsLoading(false);
-    }
-  }, [router]);
+    await mutate();
+  }, [mutate]);
 
   useEffect(() => {
-    fetchClientData();
-    const interval = window.setInterval(fetchClientData, 30_000);
-    return () => window.clearInterval(interval);
-  }, [fetchClientData]);
+    if (error?.status === 401) router.replace("/auth/login");
+  }, [error, router]);
 
   const subscription: SubscriptionState = useMemo(() => {
     if (clientData?.memberships?.length) {
@@ -166,13 +177,13 @@ export default function ClientDashboard() {
     );
   }
 
-  if (!clientData || errorMessage) {
+  if (!clientData) {
     return (
       <main className="wolf-app grid place-items-center p-6">
         <div className="wolf-panel max-w-sm p-7 text-center">
           <ShieldAlert className="wolf-tone-danger mx-auto mb-3 h-8 w-8" />
           <h1 className="text-lg font-bold">No se pudo cargar tu perfil</h1>
-          <p className="my-3 text-[13px] text-[var(--wolf-app-muted)]">{errorMessage || "Sesión no disponible"}</p>
+          <p className="my-3 text-[13px] text-[var(--wolf-app-muted)]">{error?.message || "Sesión no disponible"}</p>
           <Button
             className="wolf-button wolf-button-primary"
             onClick={fetchClientData}
@@ -224,6 +235,11 @@ export default function ClientDashboard() {
       </header>
 
       <div className="wolf-shell max-w-[1152px]">
+        {error && (
+          <div className="mb-4 rounded-md border border-orange-400/35 bg-orange-400/10 px-4 py-3 text-sm text-orange-100" role="status">
+            No se pudo actualizar el panel. Conservamos los últimos datos disponibles.
+          </div>
+        )}
         <div className="wolf-page-heading">
           <div>
             <p className="wolf-kicker">Área personal</p>
@@ -309,29 +325,72 @@ export default function ClientDashboard() {
                   <Salad className="h-4 w-4" />Nutrición
                 </TabsTrigger>
               </TabsList>
-              <TabsContent value="routines" className="m-0">
+              <TabsContent forceMount value="routines" className="m-0 data-[state=inactive]:hidden">
                 <RoutineTab gender={clientData.profile?.gender || "male"} fitnessGoal={fitnessGoal} bodyFocus={bodyFocus} setFitnessGoal={setFitnessGoal} setBodyFocus={setBodyFocus} />
               </TabsContent>
-              <TabsContent value="nutrition" className="m-0 p-4 sm:p-6">
-                <NutricionTab gender={clientData.profile?.gender || "male"} />
+              <TabsContent forceMount value="nutrition" className="m-0 p-4 data-[state=inactive]:hidden sm:p-6">
+                <NutricionTab />
               </TabsContent>
             </Tabs>
           </section>
         ) : (
-          <section className="wolf-panel border-red-500/30 bg-red-500/[0.06] p-5">
-            <div className="flex items-start gap-3">
-              <ShieldAlert className="wolf-tone-danger mt-0.5 h-5 w-5 shrink-0" />
-              <div>
-                <h2 className="mb-1 font-bold text-red-200">Membresía no activa</h2>
-                <p className="m-0 text-[13px] text-red-200/70">
-                  Acércate a recepción para renovar tu plan y habilitar tus rutinas.
-                </p>
+          <div className="space-y-4">
+            <section className="wolf-panel border-red-500/30 bg-red-500/[0.06] p-5">
+              <div className="flex items-start gap-3">
+                <ShieldAlert className="wolf-tone-danger mt-0.5 h-5 w-5 shrink-0" />
+                <div>
+                  <h2 className="mb-1 font-bold text-red-200">Membresía no activa</h2>
+                  <p className="m-0 text-[13px] text-red-200/70">
+                    Acércate a recepción para renovar tu plan y habilitar tus rutinas.
+                  </p>
+                </div>
               </div>
-            </div>
-          </section>
+            </section>
+            <LockedRoutinePreview />
+          </div>
         )}
       </div>
     </main>
+  );
+}
+
+function LockedRoutinePreview() {
+  const preview = [
+    { day: "Día 1", focus: "Fuerza de tren superior", count: "6 ejercicios" },
+    { day: "Día 2", focus: "Piernas y estabilidad", count: "7 ejercicios" },
+    { day: "Día 3", focus: "Cuerpo completo", count: "6 ejercicios" },
+  ];
+
+  return (
+    <section className="wolf-panel relative overflow-hidden" aria-label="Vista previa de rutinas disponibles">
+      <div className="wolf-panel-header">
+        <div>
+          <p className="wolf-kicker">Incluido con tu membresía</p>
+          <h2 className="wolf-panel-title flex items-center gap-2">
+            <Dumbbell className="h-5 w-5 text-[var(--wolf-app-accent)]" />
+            Tu semana de entrenamiento
+          </h2>
+          <p className="wolf-subtitle">Sesiones guiadas, registro de cargas y seguimiento de progreso.</p>
+        </div>
+      </div>
+      <div className="grid gap-3 p-4 sm:grid-cols-3 sm:p-5">
+        {preview.map((item) => (
+          <article key={item.day} className="rounded-md border border-[var(--wolf-app-border)] bg-[var(--wolf-app-surface-raised)] p-4">
+            <p className="text-xs font-bold uppercase text-[var(--wolf-app-accent)]">{item.day}</p>
+            <h3 className="mt-2 font-bold text-[var(--wolf-app-text)]">{item.focus}</h3>
+            <p className="mt-1 text-xs text-[var(--wolf-app-muted)]">{item.count} · series y descansos programados</p>
+          </article>
+        ))}
+      </div>
+      <div className="absolute inset-0 grid place-items-center bg-black/45 p-5 backdrop-blur-[1px]">
+        <div className="max-w-sm rounded-lg border border-yellow-400/45 bg-zinc-950/95 px-5 py-4 text-center shadow-2xl">
+          <LockKeyhole className="mx-auto mb-2 h-6 w-6 text-yellow-400" />
+          <p className="text-[11px] font-black uppercase text-yellow-400">Vista previa</p>
+          <p className="mt-1 font-bold text-zinc-50">Activa tu membresía para abrir las rutinas</p>
+          <p className="mt-1 text-xs leading-5 text-zinc-400">Tu progreso, historial y planes quedan disponibles desde este panel.</p>
+        </div>
+      </div>
+    </section>
   );
 }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import ProfileModal from "@/ui/components/ProfileModal";
@@ -52,13 +52,13 @@ export default function AdminProfilePage() {
   const [loading, setLoading] = useState(true);
   const [showProfileModal, setShowProfileModal] = useState(false);
 
-  const redirectToLogin = () => {
+  const redirectToLogin = useCallback(() => {
     if (isRedirecting.current) return;
     isRedirecting.current = true;
     router.replace("/auth/login");
-  };
+  }, [router]);
 
-  const loadAdminProfile = async () => {
+  const loadAdminProfile = useCallback(async () => {
     try {
       const response = await fetch("/api/admin/me", {
         credentials: "include",
@@ -82,11 +82,11 @@ export default function AdminProfilePage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [redirectToLogin]);
 
   useEffect(() => {
     loadAdminProfile();
-  }, []);
+  }, [loadAdminProfile]);
 
   const initials = adminMe
     ? `${adminMe.firstName?.[0] ?? ""}${adminMe.lastName?.[0] ?? ""}`.toUpperCase()
@@ -95,9 +95,15 @@ export default function AdminProfilePage() {
   const fields = adminMe
     ? [
         { label: "Usuario", value: adminMe.username },
-        { label: "Nombre completo", value: `${adminMe.firstName} ${adminMe.lastName}` },
+        {
+          label: "Nombre completo",
+          value: `${adminMe.firstName} ${adminMe.lastName}`,
+        },
         { label: "Teléfono", value: adminMe.phoneNumber || "No definido" },
-        { label: "Emergencia", value: adminMe.profile?.profile_emergency_phone || "No definido" },
+        {
+          label: "Emergencia",
+          value: adminMe.profile?.profile_emergency_phone || "No definido",
+        },
       ]
     : [];
 
@@ -110,11 +116,66 @@ export default function AdminProfilePage() {
         color: "#fff",
       }}
     >
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&display=swap');`}</style>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&display=swap');
+
+        .admin-profile-layout {
+          grid-template-columns: 300px minmax(0, 1fr);
+        }
+
+        @media (max-width: 1023px) {
+          .admin-profile-layout {
+            grid-template-columns: 240px minmax(0, 1fr);
+          }
+        }
+
+        @media (max-width: 767px) {
+          .admin-profile-header {
+            align-items: flex-start !important;
+            flex-direction: column;
+            gap: 16px;
+            padding: 20px 16px !important;
+          }
+
+          .admin-profile-title {
+            font-size: 30px !important;
+          }
+
+          .admin-profile-actions {
+            flex-wrap: wrap;
+            width: 100%;
+          }
+
+          .admin-profile-actions > * {
+            flex: 1 1 140px;
+            justify-content: center;
+          }
+
+          .admin-profile-body {
+            padding: 20px 16px !important;
+          }
+
+          .admin-profile-layout,
+          .admin-profile-fields {
+            grid-template-columns: minmax(0, 1fr) !important;
+          }
+
+          .admin-profile-permissions {
+            align-items: flex-start !important;
+            flex-wrap: wrap;
+          }
+
+          .admin-profile-permissions-copy {
+            margin-left: 0 !important;
+            width: 100%;
+          }
+        }
+      `}</style>
       <ToastContainer position="top-right" autoClose={3000} theme="dark" />
 
       {/* Page header */}
       <div
+        className="admin-profile-header"
         style={{
           padding: "24px 32px 20px",
           borderBottom: "1px solid rgba(255,194,26,0.12)",
@@ -137,6 +198,7 @@ export default function AdminProfilePage() {
             Cuenta
           </p>
           <h1
+            className="admin-profile-title"
             style={{
               fontFamily: "'Bebas Neue', 'Arial Narrow', sans-serif",
               fontSize: 36,
@@ -149,7 +211,10 @@ export default function AdminProfilePage() {
             PERFIL DE ADMINISTRADOR
           </h1>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div
+          className="admin-profile-actions"
+          style={{ display: "flex", gap: 8 }}
+        >
           <a
             href="/admin/dashboard"
             style={{
@@ -169,42 +234,46 @@ export default function AdminProfilePage() {
             ← Dashboard
           </a>
           {!loading && adminMe && (
-          <button
-            type="button"
-            onClick={() => setShowProfileModal(true)}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 8,
-              height: 40,
-              padding: "0 20px",
-              background: "#FFC21A",
-              color: "#0A0A0A",
-              border: "1px solid #FFC21A",
-              borderRadius: 10,
-              fontFamily: "'Inter', system-ui, sans-serif",
-              fontSize: 13,
-              fontWeight: 700,
-              cursor: "pointer",
-              transition: "background 0.15s",
-            }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background = "#FF7A1A";
-              (e.currentTarget as HTMLButtonElement).style.borderColor = "#FF7A1A";
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background = "#FFC21A";
-              (e.currentTarget as HTMLButtonElement).style.borderColor = "#FFC21A";
-            }}
-          >
-            ✎ Editar perfil
-          </button>
+            <button
+              type="button"
+              onClick={() => setShowProfileModal(true)}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                height: 40,
+                padding: "0 20px",
+                background: "#FFC21A",
+                color: "#0A0A0A",
+                border: "1px solid #FFC21A",
+                borderRadius: 10,
+                fontFamily: "'Inter', system-ui, sans-serif",
+                fontSize: 13,
+                fontWeight: 700,
+                cursor: "pointer",
+                transition: "background 0.15s",
+              }}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.background =
+                  "#FF7A1A";
+                (e.currentTarget as HTMLButtonElement).style.borderColor =
+                  "#FF7A1A";
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.background =
+                  "#FFC21A";
+                (e.currentTarget as HTMLButtonElement).style.borderColor =
+                  "#FFC21A";
+              }}
+            >
+              ✎ Editar perfil
+            </button>
           )}
         </div>
       </div>
 
       {/* Body */}
-      <div style={{ padding: "28px 32px" }}>
+      <div className="admin-profile-body" style={{ padding: "28px 32px" }}>
         {loading && (
           <div
             style={{
@@ -219,9 +288,14 @@ export default function AdminProfilePage() {
         )}
 
         {!loading && adminMe && (
-          <div style={{ display: "grid", gridTemplateColumns: "300px 1fr", gap: 18, alignItems: "start" }}>
+          <div
+            className="admin-profile-layout"
+            style={{ display: "grid", gap: 18, alignItems: "start" }}
+          >
             {/* Identity card */}
-            <div style={{ ...sty.card, overflow: "hidden", textAlign: "center" }}>
+            <div
+              style={{ ...sty.card, overflow: "hidden", textAlign: "center" }}
+            >
               {/* Stripe strip */}
               <div
                 style={{
@@ -264,7 +338,8 @@ export default function AdminProfilePage() {
                     lineHeight: 1,
                   }}
                 >
-                  {adminMe.firstName.toUpperCase()} {adminMe.lastName.toUpperCase()}
+                  {adminMe.firstName.toUpperCase()}{" "}
+                  {adminMe.lastName.toUpperCase()}
                 </div>
 
                 {/* Role badge */}
@@ -306,7 +381,14 @@ export default function AdminProfilePage() {
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               <div style={{ ...sty.card, padding: 24 }}>
                 <p style={sty.eyebrow}>Información personal</p>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+                <div
+                  className="admin-profile-fields"
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: 14,
+                  }}
+                >
                   {fields.map((field) => (
                     <div key={field.label}>
                       <p style={sty.fieldLabel}>{field.label}</p>
@@ -335,6 +417,7 @@ export default function AdminProfilePage() {
               <div style={{ ...sty.card, padding: 24 }}>
                 <p style={sty.eyebrow}>Acceso y permisos</p>
                 <div
+                  className="admin-profile-permissions"
                   style={{
                     display: "flex",
                     alignItems: "center",
@@ -388,6 +471,7 @@ export default function AdminProfilePage() {
                     </p>
                   </div>
                   <p
+                    className="admin-profile-permissions-copy"
                     style={{
                       marginLeft: "auto",
                       fontSize: 12,
