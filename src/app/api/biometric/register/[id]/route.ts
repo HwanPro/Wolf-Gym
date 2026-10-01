@@ -15,8 +15,6 @@ function timeoutFetch(input: RequestInfo | URL, init?: RequestInit, ms = TIMEOUT
   return fetch(input, merged).finally(() => clearTimeout(id));
 }
 
-type CaptureResponse = { ok: boolean; template?: string | null; message?: string | null };
-
 export async function POST(
   req: NextRequest,
   ctx: { params: Promise<{ id: string }> } // <- params es Promise, hay que await
@@ -28,7 +26,7 @@ export async function POST(
     const { id } = await ctx.params;
 
     if (!id || id.length < 10) {
-      return NextResponse.json({ ok: false, message: "userId inválido" }, { status: 400 });
+      return NextResponse.json({ ok: false, message: "El cliente seleccionado no es válido." }, { status: 400 });
     }
 
     // Lee body y normaliza entradas
@@ -39,7 +37,7 @@ export async function POST(
     const fingerIndex = Number.isInteger(Number(rawFingerIndex)) ? Number(rawFingerIndex) : 0;
 
     if (fingerIndex < 0 || fingerIndex > 9) {
-      return NextResponse.json({ ok: false, message: "fingerIndex debe estar entre 0 y 9" }, { status: 400 });
+      return NextResponse.json({ ok: false, message: "El dedo seleccionado no es válido." }, { status: 400 });
     }
 
     const templatesBody = Array.isArray(body?.templates)
@@ -48,28 +46,16 @@ export async function POST(
           .map((x) => x as string)
       : null;
 
-    const templateBody =
-      typeof body?.template === "string" && (body.template as string).length > 0
-        ? (body.template as string)
-        : null;
-
-    // Si no envías plantilla, capturar una muestra del dispositivo.
-    const templates: string[] = [];
-    if (templatesBody?.length) {
-      templates.push(...templatesBody);
-    } else if (templateBody) {
-      templates.push(templateBody);
-    } else {
-      const capRes = await timeoutFetch(`${BIOMETRIC_BASE}/capture`, { method: "POST", cache: "no-store" });
-      const cap = (await capRes.json().catch(() => ({ ok: false, template: null, message: "Respuesta inválida" }))) as CaptureResponse;
-      if (!capRes.ok || !cap?.ok || !cap?.template) {
-        return NextResponse.json(
-          { ok: false, message: cap?.message || "No se pudo capturar la huella." },
-          { status: 400 }
-        );
-      }
-      templates.push(cap.template);
+    if (templatesBody?.length !== 3) {
+      return NextResponse.json(
+        {
+          ok: false,
+          message: "Se requieren tres muestras consecutivas del mismo dedo.",
+        },
+        { status: 400 },
+      );
     }
+    const templates = templatesBody;
 
     // Registrar usando el endpoint /enroll del servicio C# biometric-service
     const enrollPayload = {
@@ -85,11 +71,13 @@ export async function POST(
       cache: "no-store",
     });
 
-    const enrollData = (await enrollRes.json().catch(() => ({}))) as { ok?: boolean; message?: string };
+    const enrollData = (await enrollRes.json().catch(() => ({}))) as { ok?: boolean };
     const ok = enrollRes.ok && enrollData?.ok !== false;
 
     return NextResponse.json(
-      ok ? enrollData : { ok: false, message: enrollData?.message || "Error registrando" },
+      ok
+        ? { ok: true, message: "Huella registrada correctamente." }
+        : { ok: false, message: "No se pudo registrar la huella." },
       { status: ok ? 200 : enrollRes.status || 500 }
     );
   } catch (err: unknown) {
@@ -99,8 +87,7 @@ export async function POST(
         ok: false,
         message: aborted
           ? "Tiempo de espera excedido comunicando con el servicio biométrico."
-          : (err as Error | undefined)?.message || "Fallo inesperado",
-        error: aborted ? "TIMEOUT" : String((err as Error | undefined)?.message || err),
+          : "No se pudo completar el registro biométrico.",
       },
       { status: 504 }
     );

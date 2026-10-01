@@ -6,6 +6,15 @@ import Swal from "sweetalert2";
 import "sweetalert2/dist/sweetalert2.min.css";
 import { useSession } from "next-auth/react";
 import { RefreshCw } from "lucide-react";
+import FingerprintCaptureDialog, {
+  type FingerprintCapturePhase,
+  type FingerprintOperation,
+} from "@/features/clients/components/FingerprintCaptureDialog";
+import {
+  mapActiveAttendanceRows,
+  type ActiveGymMember,
+  type AttendanceFeedRow,
+} from "@/domain/attendance/attendance-feed";
 
 /* ─── Wolf Gym design tokens ─── */
 const W = {
@@ -72,18 +81,6 @@ type ActivityLog = {
   plan?: string;
   profileId?: string;
 };
-type ActiveGymMember = {
-  profileId: string;
-  userId?: string;
-  fullName: string;
-  plan?: string;
-  daysLeft?: number;
-  monthlyDebt: number;
-  dailyDebt: number;
-  totalDebt: number;
-  checkInTime: number;
-  avatarUrl?: string;
-};
 type DebtTarget = {
   profileId: string;
   userId?: string;
@@ -94,31 +91,6 @@ type DebtTarget = {
   dailyDebt: number;
   totalDebt: number;
 };
-type AttendanceRow = {
-  checkOutTime?: string | null;
-  checkInTime: string;
-  profileId?: string;
-  userId?: string;
-  fullName?: string;
-  plan?: string;
-  daysLeft?: number | string;
-  monthlyDebt?: number | string;
-  dailyDebt?: number | string;
-  totalDebt?: number | string;
-  avatarUrl?: string;
-  profile?: {
-    id?: string;
-    fullName?: string;
-    plan?: string;
-    image?: string;
-  };
-  user?: {
-    id?: string;
-    name?: string;
-    image?: string;
-  };
-};
-
 /* ─── Tiny shared UI pieces ─── */
 function Eyebrow({
   children,
@@ -248,6 +220,12 @@ export default function CheckInPage() {
   );
   const [showDebtDialog, setShowDebtDialog] = useState(false);
   const [selectedClient, setSelectedClient] = useState<DebtTarget | null>(null);
+  const [fingerprintCapture, setFingerprintCapture] = useState<{
+    open: boolean;
+    phase: FingerprintCapturePhase;
+    operation: FingerprintOperation;
+    image?: string;
+  }>({ open: false, phase: "ready", operation: "entrada" });
 
   const role = session?.user?.role;
 
@@ -290,38 +268,8 @@ export default function CheckInPage() {
     try {
       const response = await fetch("/api/attendance", { cache: "no-store" });
       if (!response.ok) return;
-      const rows = (await response.json()) as AttendanceRow[];
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
-      const active: ActiveGymMember[] = rows
-        .filter(
-          (row) => !row.checkOutTime && new Date(row.checkInTime) >= todayStart,
-        )
-        .map((row) => ({
-          profileId: row.profileId ?? row.profile?.id ?? "",
-          userId: row.userId ?? row.user?.id,
-          fullName:
-            row.fullName ??
-            row.profile?.fullName ??
-            row.user?.name ??
-            "Cliente",
-          plan: row.plan ?? row.profile?.plan,
-          daysLeft:
-            row.daysLeft !== undefined ? Number(row.daysLeft) : undefined,
-          monthlyDebt: Number(row.monthlyDebt ?? 0),
-          dailyDebt: Number(row.dailyDebt ?? 0),
-          totalDebt: Number(
-            row.totalDebt ??
-              Number(row.monthlyDebt ?? 0) + Number(row.dailyDebt ?? 0),
-          ),
-          checkInTime: new Date(row.checkInTime).getTime(),
-          avatarUrl: row.avatarUrl ?? row.profile?.image ?? row.user?.image,
-        }))
-        .sort(
-          (a: ActiveGymMember, b: ActiveGymMember) =>
-            b.checkInTime - a.checkInTime,
-        );
-      setActiveGymMembers(active);
+      const rows = (await response.json()) as AttendanceFeedRow[];
+      setActiveGymMembers(mapActiveAttendanceRows(rows));
     } catch {}
   };
 
@@ -388,8 +336,13 @@ export default function CheckInPage() {
   };
 
   /* Fase 1 – captura polling */
-  const captureFingerprint = async (): Promise<string | null> => {
-    const MAX = 12;
+  const captureFingerprint = async (): Promise<{
+    template: string;
+    image?: string;
+  } | null> => {
+    // La API mantiene el lector disponible durante varios intentos internos.
+    // Desde la interfaz solo iniciamos una sesión de lectura por operación.
+    const MAX = 1;
     for (let i = 0; i < MAX; i++) {
       if (!scanningRef.current) return null;
       try {
@@ -400,8 +353,9 @@ export default function CheckInPage() {
         const j = (await r.json().catch(() => ({}))) as {
           ok?: boolean;
           template?: string;
+          image?: string;
         };
-        if (j?.ok && j?.template) return j.template;
+        if (j?.ok && j?.template) return { template: j.template, image: j.image };
         await new Promise((res) => setTimeout(res, 300));
       } catch {
         await new Promise((res) => setTimeout(res, 300));
@@ -433,55 +387,21 @@ export default function CheckInPage() {
     }
   };
 
-  /* Scan dialog – Wolf Gym styled */
+  /* Diálogo compartido de lectura biométrica */
   const showScanDialog = (tipo: "entrada" | "salida" | "deuda" = "entrada") => {
-    const accent = tipo === "salida" ? W.danger : W.yellow;
-    const label =
-      tipo === "entrada"
-        ? "MARCANDO ENTRADA"
-        : tipo === "salida"
-          ? "MARCANDO SALIDA"
-          : "BUSCANDO CLIENTE PARA DEUDA";
-    Swal.fire({
-      ...swalBase,
-      title: `<span style="font-family:'Bebas Neue','Arial Narrow',sans-serif;font-size:28px;letter-spacing:.04em">${label}</span>`,
-      html: `
-        <div style="text-align:center;padding:8px 0 4px">
-          <div style="position:relative;display:inline-block;margin:8px 0 20px">
-            <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
-              width:80px;height:80px;border:2px solid ${accent};border-radius:50%;
-              animation:wgP 1.8s infinite;"></div>
-            <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
-              width:80px;height:80px;border:2px solid ${accent};border-radius:50%;
-              animation:wgP 1.8s .9s infinite;"></div>
-            <div style="font-size:44px;position:relative;z-index:10;animation:wgB 1.5s infinite">👆</div>
-          </div>
-          <p style="margin:0 0 4px;font-size:14px;color:rgba(255,255,255,0.85)">
-            Coloca tu dedo en el lector <b style="color:${accent}">ZK9500</b>
-          </p>
-          <small style="color:rgba(255,255,255,0.4);font-size:11px;letter-spacing:.06em;text-transform:uppercase">
-            Presiona firmemente y mantén quieto
-          </small>
-        </div>
-        <style>
-          @keyframes wgP{0%{transform:translate(-50%,-50%) scale(.8);opacity:1}
-            100%{transform:translate(-50%,-50%) scale(2);opacity:0}}
-          @keyframes wgB{0%,100%{transform:translateY(0)}40%{transform:translateY(-10px)}60%{transform:translateY(-5px)}}
-        </style>`,
-      allowOutsideClick: true,
-      showConfirmButton: true,
-      confirmButtonText: "✋ Detener",
-      confirmButtonColor: W.graph,
-      showCancelButton: false,
-      didOpen: () => {
-        document
-          .querySelector(".swal2-confirm")
-          ?.addEventListener("click", () => {
-            scanningRef.current = false;
-            Swal.close();
-          });
-      },
-    });
+    setFingerprintCapture({ open: true, phase: "capturing", operation: tipo });
+  };
+
+  const closeScanDialog = () =>
+    setFingerprintCapture((current) => ({ ...current, open: false, phase: "ready", image: undefined }));
+
+  const showCapturedFingerprint = (image?: string) =>
+    setFingerprintCapture((current) => ({ ...current, phase: "saving", image }));
+
+  const completeScanDialog = async () => {
+    setFingerprintCapture((current) => ({ ...current, phase: "success" }));
+    await new Promise((resolve) => window.setTimeout(resolve, 650));
+    closeScanDialog();
   };
 
   const register = async (payload: {
@@ -620,15 +540,24 @@ export default function CheckInPage() {
     setLoading(true);
     showScanDialog("entrada");
     try {
-      const template = await captureFingerprint();
-      Swal.close();
-      if (!template || !scanningRef.current) return;
-      const res = await identifyByTemplate(template);
+      const capture = await captureFingerprint();
+      if (!capture || !scanningRef.current) {
+        closeScanDialog();
+        return;
+      }
+      showCapturedFingerprint(capture.image);
+      const res = await identifyByTemplate(capture.template);
+      if (!scanningRef.current) {
+        closeScanDialog();
+        return;
+      }
       if (res.match && res.userId) {
         const data = await register({ userId: res.userId });
+        await completeScanDialog();
         vibrate(200);
         await showCard(data, res.name);
       } else {
+        closeScanDialog();
         const identifier = await askIdentifier(
           "No te reconocimos. Registra por DNI o teléfono",
         );
@@ -638,6 +567,7 @@ export default function CheckInPage() {
         await showCard(data);
       }
     } catch (error: unknown) {
+      closeScanDialog();
       vibrate(60);
       await Swal.fire({
         ...swalBase,
@@ -657,15 +587,24 @@ export default function CheckInPage() {
     setLoading(true);
     showScanDialog("salida");
     try {
-      const template = await captureFingerprint();
-      Swal.close();
-      if (!template || !scanningRef.current) return;
-      const res = await identifyByTemplate(template);
+      const capture = await captureFingerprint();
+      if (!capture || !scanningRef.current) {
+        closeScanDialog();
+        return;
+      }
+      showCapturedFingerprint(capture.image);
+      const res = await identifyByTemplate(capture.template);
+      if (!scanningRef.current) {
+        closeScanDialog();
+        return;
+      }
       if (res.match && res.userId) {
         const data = await register({ userId: res.userId, intent: "checkout" });
+        await completeScanDialog();
         vibrate(200);
         await showCard(data, res.name);
       } else {
+        closeScanDialog();
         const identifier = await askIdentifier(
           "No te reconocimos. Salida por DNI o teléfono",
         );
@@ -675,6 +614,7 @@ export default function CheckInPage() {
         await showCard(data);
       }
     } catch (error: unknown) {
+      closeScanDialog();
       vibrate(60);
       await Swal.fire({
         ...swalBase,
@@ -695,25 +635,37 @@ export default function CheckInPage() {
     setLoading(true);
     showScanDialog("deuda");
     try {
-      const template = await captureFingerprint();
-      Swal.close();
+      const capture = await captureFingerprint();
+      if (!scanningRef.current) {
+        closeScanDialog();
+        return;
+      }
+      if (capture) showCapturedFingerprint(capture.image);
       let target: DebtTarget | null = null;
-      if (template && scanningRef.current) {
-        const identified = await identifyByTemplate(template);
+      if (capture && scanningRef.current) {
+        const identified = await identifyByTemplate(capture.template);
+        if (!scanningRef.current) {
+          closeScanDialog();
+          return;
+        }
         if (identified.match && identified.userId) {
           target = await lookupClientForDebt({ userId: identified.userId });
         }
       }
       if (!target) {
+        closeScanDialog();
         const identifier = await askIdentifier(
           "No te reconocimos. Busca por DNI o teléfono",
         );
         if (!identifier) return;
         target = await lookupClientForDebt({ identifier });
+      } else {
+        await completeScanDialog();
       }
       setSelectedClient(target);
       setShowDebtDialog(true);
     } catch (error: unknown) {
+      closeScanDialog();
       await Swal.fire({
         ...swalBase,
         icon: "error",
@@ -740,6 +692,7 @@ export default function CheckInPage() {
         if (data.action === "stop") {
           scanningRef.current = false;
           setLoading(false);
+          closeScanDialog();
           Swal.close();
         }
       } catch {}
@@ -777,7 +730,19 @@ export default function CheckInPage() {
           customName,
         }),
       });
+      const data = await response.json().catch(() => ({}));
       if (response.ok) {
+        const summary = data?.summary as
+          | { monthlyDebt: number; dailyDebt: number; totalDebt: number }
+          | undefined;
+        if (summary) {
+          const applySummary = <T extends { profileId?: string }>(item: T) =>
+            item.profileId === selectedClient.profileId
+              ? { ...item, ...summary }
+              : item;
+          setActiveGymMembers((current) => current.map(applySummary));
+          setActivityLog((current) => current.map(applySummary));
+        }
         await Swal.fire({
           ...swalBase,
           icon: "success",
@@ -788,13 +753,13 @@ export default function CheckInPage() {
         setShowDebtDialog(false);
         setSelectedClient(null);
         await refreshActiveGymMembers();
-      } else throw new Error();
-    } catch {
+      } else throw new Error(data?.error || "No se pudo agregar la deuda");
+    } catch (error: unknown) {
       await Swal.fire({
         ...swalBase,
         icon: "error",
         title: "Error",
-        text: "No se pudo agregar la deuda",
+        text: getErrorMessage(error, "No se pudo agregar la deuda"),
       });
     }
   };
@@ -848,6 +813,18 @@ export default function CheckInPage() {
         .wg-btn-ghost:hover   { background: rgba(255,255,255,0.06) !important; }
         .wg-btn-ghost-y:hover { background: rgba(255,194,26,0.08) !important; }
         .wg-log-item:hover    { border-color: rgba(255,194,26,0.35) !important; }
+        .wg-control-card { min-width: 0; }
+        .wg-control-title {
+          display: block;
+          max-width: 100%;
+          padding-top: 4px;
+          font-size: 56px;
+          line-height: 1.04;
+          overflow-wrap: anywhere;
+        }
+        @media (max-width: 1200px) {
+          .wg-control-title { font-size: 48px; }
+        }
         @media (max-width: 640px) {
           .wg-topbar {
             height: auto !important;
@@ -870,6 +847,10 @@ export default function CheckInPage() {
           }
           .wg-control-card {
             padding: 24px !important;
+          }
+          .wg-control-title {
+            font-size: 42px;
+            line-height: 1.06;
           }
           .wg-action-grid {
             grid-template-columns: 1fr !important;
@@ -928,7 +909,7 @@ export default function CheckInPage() {
           >
             {isAdmin && (
               <span style={{ fontSize: 12, color: W.mutedDark }}>
-                {mode === "remote" ? "Control remoto" : "Modo kiosk"}
+                {mode === "remote" ? "Control remoto" : "Modo recepción"}
               </span>
             )}
             <Link
@@ -948,7 +929,7 @@ export default function CheckInPage() {
                 letterSpacing: "0.02em",
               }}
             >
-              Dashboard →
+              Panel administrativo →
             </Link>
           </div>
         </header>
@@ -1011,12 +992,11 @@ export default function CheckInPage() {
                 Control de acceso
               </Eyebrow>
               <h1
+                className="wg-control-title"
                 style={{
                   fontFamily: "'Bebas Neue', 'Arial Narrow', sans-serif",
-                  fontSize: "clamp(40px, 4.5vw, 62px)",
-                  lineHeight: 0.95,
                   margin: "0 0 12px",
-                  letterSpacing: "0.02em",
+                  letterSpacing: 0,
                   position: "relative",
                 }}
               >
@@ -1795,6 +1775,17 @@ export default function CheckInPage() {
             </div>
           </div>
         )}
+        <FingerprintCaptureDialog
+          open={fingerprintCapture.open}
+          phase={fingerprintCapture.phase}
+          image={fingerprintCapture.image}
+          operation={fingerprintCapture.operation}
+          onCancel={() => {
+            scanningRef.current = false;
+            setLoading(false);
+            closeScanDialog();
+          }}
+        />
       </div>
     </>
   );

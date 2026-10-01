@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
     const clients = await prisma.clientProfile.findMany();
     return NextResponse.json(clients);
   } catch (error) {
-    console.error("Error fetching clients:", error);
-    return NextResponse.json({ error: "Error fetching clients" }, { status: 500 });
+    console.error("Error al obtener clientes:", error);
+    return NextResponse.json({ error: "No se pudieron obtener los clientes" }, { status: 500 });
   }
 }

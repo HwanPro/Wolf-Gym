@@ -36,8 +36,8 @@ export async function GET(request: NextRequest) {
     }));
     return NextResponse.json(normalizedProducts, { status: 200 });
   } catch (error) {
-    console.error("Error fetching products:", error);
-    return NextResponse.json({ error: "Failed to fetch products" }, { status: 500 });
+    console.error("Error al obtener productos:", error);
+    return NextResponse.json({ error: "No se pudieron obtener los productos" }, { status: 500 });
   }
 }
 
@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing or invalid required fields" }, { status: 400 });
     }
     if (!(file instanceof File)) {
-      return NextResponse.json({ error: "Invalid file" }, { status: 400 });
+      return NextResponse.json({ error: "El archivo no es válido" }, { status: 400 });
     }
     const validationError = validateUploadFile(file, {
       allowedTypes: ["image/jpeg", "image/png", "image/webp"],
@@ -107,7 +107,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ message: "Product created successfully", product: newProduct });
   } catch (error) {
-    console.error("Error uploading to S3 or saving to DB:", error);
+    console.error("Error al subir la imagen o guardar el producto:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

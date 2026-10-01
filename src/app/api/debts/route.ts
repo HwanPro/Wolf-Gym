@@ -134,7 +134,7 @@ export async function POST(request: NextRequest) {
     const dailyDebt = await prisma.dailyDebt.create({
       data: {
         clientProfileId: validatedData.clientProfileId,
-        productType: validatedData.productType as any,
+        productType: validatedData.productType,
         productName,
         amount,
         quantity: validatedData.quantity,
@@ -142,11 +142,29 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    const [dailyAggregate, clientProfile] = await Promise.all([
+      prisma.dailyDebt.aggregate({
+        where: { clientProfileId: validatedData.clientProfileId },
+        _sum: { amount: true },
+      }),
+      prisma.clientProfile.findUnique({
+        where: { profile_id: validatedData.clientProfileId },
+        select: { debt: true },
+      }),
+    ]);
+    const dailyTotal = Number(dailyAggregate._sum.amount || 0);
+    const monthlyDebt = Number(clientProfile?.debt || 0);
+
     return NextResponse.json({
       message: "Deuda agregada exitosamente",
       debt: {
         ...dailyDebt,
         amount: Number(dailyDebt.amount),
+      },
+      summary: {
+        dailyDebt: dailyTotal,
+        monthlyDebt,
+        totalDebt: dailyTotal + monthlyDebt,
       },
     });
   } catch (error) {

@@ -9,7 +9,7 @@ const navSections = [
   {
     eyebrow: "Principal",
     items: [
-      { href: "/admin/dashboard", icon: "🏠", label: "Dashboard" },
+      { href: "/admin/dashboard", icon: "🏠", label: "Panel" },
       { href: "/admin/clients", icon: "👥", label: "Clientes" },
       { href: "/admin/attendence", icon: "📅", label: "Asistencia" },
     ],

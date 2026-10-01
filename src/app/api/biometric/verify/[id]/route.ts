@@ -47,7 +47,7 @@ export async function POST(
 
     if (fingerIndex < 0 || fingerIndex > 9) {
       return NextResponse.json(
-        { ok: false, message: "fingerIndex debe estar entre 0 y 9" },
+        { ok: false, message: "El dedo seleccionado no es válido." },
         { status: 400 }
       );
     }
@@ -93,13 +93,16 @@ export async function POST(
       cache: "no-store",
     });
 
-    const verifyData = await verifyRes.json().catch(() => ({}));
+    const verifyData = (await verifyRes.json().catch(() => ({}))) as {
+      ok?: boolean;
+      match?: boolean;
+    };
 
     if (!verifyRes.ok) {
       return NextResponse.json(
         {
           ok: false,
-          message: verifyData?.message || "Error en la verificación biométrica.",
+          message: "No se pudo completar la verificación biométrica.",
         },
         { status: verifyRes.status || 500 }
       );
@@ -110,9 +113,9 @@ export async function POST(
       {
         ok: verifyData?.ok ?? false,
         match: verifyData?.match ?? false,
-        score: verifyData?.score,
-        threshold: verifyData?.threshold,
-        message: verifyData?.message || (verifyData?.match ? "Huella verificada correctamente" : "La huella no coincide"),
+        message: verifyData?.match
+          ? "Huella verificada correctamente."
+          : "La huella no coincide con este cliente.",
       },
       { status: 200 }
     );
@@ -125,7 +128,6 @@ export async function POST(
         message: aborted
           ? "Tiempo de espera excedido comunicando con el servicio biométrico."
           : "Error interno en la verificación biométrica.",
-        error: aborted ? "TIMEOUT" : String((err as Error | undefined)?.message || err),
       },
       { status: 504 }
     );

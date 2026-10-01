@@ -17,6 +17,7 @@
     "postinstall": "prisma generate",
     "kiosk": "cross-env NEXT_PUBLIC_KIOSK=1 NEXT_PUBLIC_BIOMETRIC_BASE=http://127.0.0.1:8001 BIOMETRIC_CAPTURE_BASE=http://127.0.0.1:8001 next start -p 3000",
     "python:watch": "powershell -ExecutionPolicy Bypass -File scripts/watch-python-service.ps1",
+    "biometric:local": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-biometric-local.ps1",
     "migrate:clients": "node scripts/migrate-client-report.mjs",
     "service:install": "node ./service-install.cjs",
     "service:uninstall": "node ./service-uninstall.cjs",
@@ -25,7 +26,8 @@
     "cleanup:weekly": "npm run cleanup-debts weekly",
     "cleanup:both": "npm run cleanup-debts both",
     "seed:complete": "node prisma/seed-complete.js",
-    "seed:admin": "node prisma/seed-admin-profile.js"
+    "seed:admin": "node prisma/seed-admin-profile.js",
+    "seed:local-test": "node scripts/seed-local-test-data.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.714.0",

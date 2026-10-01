@@ -36,6 +36,7 @@
   "**/*.tsx",
   "src/types/next-auth.d.ts",
   ".next/types/**/*.ts",
+  ".next-e2e/types/**/*.ts",
   "components/ProtectedRoute.js",
   "src/app/api/check-in"
  ],

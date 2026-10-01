@@ -331,7 +331,7 @@ export default function AdminDashboard() {
         <section className="wolf-panel wolf-summary" aria-label="Resumen de hoy">
           <div>
             <p className="wolf-kicker">Hoy</p>
-            <p className="wolf-summary-value"><strong>{dashboardData.todayAttendance}</strong> check-ins</p>
+            <p className="wolf-summary-value"><strong>{dashboardData.todayAttendance}</strong> entradas</p>
             <p className="wolf-subtitle">Última actualización: {lastUpdatedLabel}</p>
           </div>
           <div className="wolf-summary-actions">

@@ -1,6 +1,7 @@
 # Node/Next
 node_modules/
 .next/
+.next-e2e/
 out/
 dist/
 .turbo/
@@ -10,6 +11,10 @@ dist/
 .vscode/
 .idea/
 .DS_Store
+**/.vs/
+**/bin/
+**/obj/
+*.suo
 
 # Tests/build/coverage
 coverage/
@@ -17,6 +22,7 @@ playwright-report/
 test-results/
 *.log
 *.tsbuildinfo
+backup_*.sql
 
 # Prisma
 prisma/dev.db

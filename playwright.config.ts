@@ -36,7 +36,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "npx next dev -p 3100",
+    command: "npx cross-env NEXT_DIST_DIR=.next-e2e next dev -p 3100",
     url: "http://127.0.0.1:3100",
     reuseExistingServer: true,
     timeout: 120_000,

@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 
 const navLinks = [
-  { href: "/client/dashboard", label: "Dashboard" },
+  { href: "/client/dashboard", label: "Panel" },
   { href: "/admin/dashboard", label: "Admin" },
   { href: "/check-in", label: "Recepción" },
 ];

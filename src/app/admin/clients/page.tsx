@@ -282,7 +282,9 @@ export default function ClientsPage() {
     open: boolean;
     phase: FingerprintCapturePhase;
     image?: string;
-  }>({ open: false, phase: "ready" });
+    operation?: "registro" | "verificación";
+    sample?: number;
+  }>({ open: false, phase: "ready", operation: "registro", sample: 1 });
 
   const clients = clientsData;
   const totalClients = clients.length;
@@ -620,16 +622,38 @@ export default function ClientsPage() {
         });
         if (!ask.isConfirmed) return;
       }
-      setFingerprintCapture({ open: true, phase: "ready" });
-      await new Promise((resolve) => window.setTimeout(resolve, 1200));
-      setFingerprintCapture({ open: true, phase: "capturing" });
-      let template: string;
+      const templates: string[] = [];
       let image: string | undefined;
       try {
-        const capture = await captureOnce();
-        template = capture.template;
-        image = capture.image;
-        setFingerprintCapture({ open: true, phase: "saving", image });
+        for (let sample = 1; sample <= 3; sample += 1) {
+          setFingerprintCapture({
+            open: true,
+            phase: "ready",
+            image,
+            operation: "registro",
+            sample,
+          });
+          await new Promise((resolve) =>
+            window.setTimeout(resolve, sample === 1 ? 1200 : 1800),
+          );
+          setFingerprintCapture({
+            open: true,
+            phase: "capturing",
+            image,
+            operation: "registro",
+            sample,
+          });
+          const capture = await captureOnce();
+          templates.push(capture.template);
+          image = capture.image;
+        }
+        setFingerprintCapture({
+          open: true,
+          phase: "saving",
+          image,
+          operation: "registro",
+          sample: 3,
+        });
       } catch (error) {
         setFingerprintCapture({ open: false, phase: "ready" });
         const errorMessage =
@@ -647,7 +671,7 @@ export default function ClientsPage() {
       const res = await fetch(`/api/biometric/register/${userId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ template }),
+        body: JSON.stringify({ templates }),
       });
       const jr: RegisterFingerprintResponse = await res
         .json()
@@ -664,7 +688,7 @@ export default function ClientsPage() {
         });
       }
       setFpStatus((s) => ({ ...s, [userId]: true }));
-      setFingerprintCapture({ open: true, phase: "success", image });
+      setFingerprintCapture({ open: true, phase: "success", image, operation: "registro", sample: 3 });
       await new Promise((resolve) => window.setTimeout(resolve, 1800));
       setFingerprintCapture({ open: false, phase: "ready" });
       toast.success(jr?.message || "Huella registrada exitosamente");
@@ -696,42 +720,11 @@ export default function ClientsPage() {
     }
     setBusy((b) => ({ ...b, [userId]: true }));
     try {
-      Swal.fire({
-        ...swalBase,
-        title: "🔍 Verificando Huella",
-        html: `<div class="fingerprint-scanner"><div class="scanner-animation"><div class="pulse-ring"></div><div class="pulse-ring-2"></div><div class="fingerprint-icon">👆</div></div><div class="scanner-text"><p style="margin: 15px 0 5px 0; font-size: 16px; color: #333;">Coloca tu dedo para verificar</p><small style="opacity: 0.7; font-size: 13px;">Presiona firmemente y mantén quieto</small></div></div><style>.fingerprint-scanner { text-align: center; padding: 10px; }.scanner-animation { position: relative; display: inline-block; margin: 10px 0 20px 0; }.pulse-ring, .pulse-ring-2 {position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);width: 80px; height: 80px; border: 3px solid #007bff; border-radius: 50%;animation: pulse 2s infinite;}.pulse-ring-2 { animation-delay: 1s; border-color: #28a745; }.fingerprint-icon { font-size: 40px; z-index: 10; position: relative; animation: bounce 1.5s infinite; }@keyframes pulse {0% { transform: translate(-50%, -50%) scale(0.8); opacity: 1; }100% { transform: translate(-50%, -50%) scale(1.8); opacity: 0; }}@keyframes bounce {0%, 20%, 50%, 80%, 100% { transform: translateY(0); }40% { transform: translateY(-10px); }60% { transform: translateY(-5px); }}@keyframes spin {0% { transform: rotate(0deg); }100% { transform: rotate(360deg); }}.spinner { display: inline-block; animation: spin 1s linear infinite; margin-right: 8px; }</style>`,
-        allowOutsideClick: false,
-        showConfirmButton: false,
-        customClass: { popup: "fingerprint-popup" },
-      });
-      setTimeout(() => {
-        const textElement = document.querySelector(
-          ".scanner-text p",
-        ) as HTMLElement;
-        const iconElement = document.querySelector(
-          ".fingerprint-icon",
-        ) as HTMLElement;
-        if (textElement && iconElement) {
-          textElement.innerHTML =
-            '<span class="spinner">🔄</span> Capturando...';
-          textElement.style.color = "#007bff";
-          iconElement.innerHTML = "🔄";
-          iconElement.style.animation = "spin 1s linear infinite";
-        }
-      }, 500);
-      const { template } = await captureOnce();
-      const textElement = document.querySelector(
-        ".scanner-text p",
-      ) as HTMLElement;
-      const iconElement = document.querySelector(
-        ".fingerprint-icon",
-      ) as HTMLElement;
-      if (textElement && iconElement) {
-        textElement.innerHTML =
-          '<span class="spinner">🔍</span> Verificando...';
-        textElement.style.color = "#ffc107";
-        iconElement.innerHTML = "🔍";
-      }
+      setFingerprintCapture({ open: true, phase: "ready", operation: "verificación" });
+      await new Promise((resolve) => window.setTimeout(resolve, 500));
+      setFingerprintCapture({ open: true, phase: "capturing", operation: "verificación" });
+      const { template, image } = await captureOnce();
+      setFingerprintCapture({ open: true, phase: "saving", image, operation: "verificación" });
       const response = await fetch(`/api/biometric/verify/${userId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -740,32 +733,22 @@ export default function ClientsPage() {
       const data = (await response.json()) as {
         ok: boolean;
         match?: boolean;
-        score?: number;
-        threshold?: number;
         message?: string;
       };
-      Swal.close();
-      const isError =
-        data.ok === false && typeof data.score === "number" && data.score < 0;
-      const baseMsg = data?.message || "";
-      const extra = Number.isFinite(data?.score)
-        ? ` (score=${data.score}, thr=${data?.threshold ?? "?"})`
-        : "";
+      setFingerprintCapture({ open: true, phase: "success", image, operation: "verificación" });
+      await new Promise((resolve) => window.setTimeout(resolve, 900));
+      setFingerprintCapture({ open: false, phase: "ready", operation: "verificación" });
       await Swal.fire({
         ...swalBase,
-        title: data?.match
-          ? "✅ Huella verificada"
-          : isError
-            ? "❌ Error del lector"
-            : "❌ No coincide",
-        text: `${baseMsg}${extra}`,
+        title: data?.match ? "Huella verificada" : "La huella no coincide",
+        text: data?.message || (data?.match ? "La identidad fue confirmada." : "Inténtalo nuevamente."),
         icon: data?.match ? "success" : "error",
         timer: 1800,
         showConfirmButton: false,
       });
       return data;
     } catch (error) {
-      Swal.close();
+      setFingerprintCapture({ open: false, phase: "ready", operation: "verificación" });
       console.error("Error en verificación de huella:", error);
       toast.error("Error al verificar la huella. Intente nuevamente.");
       throw error;
@@ -1894,6 +1877,8 @@ export default function ClientsPage() {
         open={fingerprintCapture.open}
         phase={fingerprintCapture.phase}
         image={fingerprintCapture.image}
+        operation={fingerprintCapture.operation}
+        sample={fingerprintCapture.sample}
       />
 
       {isPageLoading && (
@@ -2042,24 +2027,3 @@ function ActionTooltip({
     </span>
   );
 }
-
-function Info({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <p
-        style={{
-          fontSize: 11,
-          color: "rgba(255,255,255,0.35)",
-          margin: "0 0 2px",
-        }}
-      >
-        {label}
-      </p>
-      <p style={{ fontSize: 13, fontWeight: 500, color: "#fff", margin: 0 }}>
-        {value}
-      </p>
-    </div>
-  );
-}
-// keep Info exported for potential use
-export { Info };

@@ -7,11 +7,6 @@ const CAPTURE_BASE =
   process.env.BIOMETRIC_CAPTURE_BASE ||
   process.env.BIOMETRIC_BASE ||
   "http://127.0.0.1:8001";
-const IDENTIFY_BASE =
-  process.env.BIOMETRIC_STORE_BASE ||
-  process.env.NEXT_PUBLIC_BIOMETRIC_BASE ||
-  "http://127.0.0.1:8001";
-
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
@@ -160,8 +155,6 @@ export async function POST(req: Request) {
         user_id: userId, // compat
         fullName,
         name: fullName, // compat
-        score: bestMatch.score,
-        threshold: bestMatch.threshold,
         hasProfile: Boolean(profile),
         membershipExpired,
         profileEndDate: profile?.profile_end_date ?? null,
@@ -173,9 +166,10 @@ export async function POST(req: Request) {
       },
       { status: 200 }
     );
-  } catch (e: unknown) {
+  } catch {
+    console.error("No se pudo completar la identificación biométrica.");
     return NextResponse.json(
-      { ok: false, message: (e as Error)?.message || "Fallo interno" },
+      { ok: false, message: "No se pudo completar la identificación biométrica." },
       { status: 500 }
     );
   }

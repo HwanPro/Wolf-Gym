@@ -82,6 +82,13 @@ if (Test-Path $packagedConfigPath) {
     Write-Host "  Config biometrica sanitizada; los secretos se conservan localmente" -ForegroundColor Green
 }
 
+# ASP.NET carga este archivo despues de appsettings.json. No debe viajar en el
+# paquete porque podria sobrescribir la conexion privada preservada en cada PC.
+$packagedProductionConfigPath = Join-Path $BIO_DEST "appsettings.Production.json"
+if (Test-Path -LiteralPath $packagedProductionConfigPath) {
+    Remove-Item -LiteralPath $packagedProductionConfigPath -Force
+}
+
 # ── 3. Build Next.js ──────────────────────────────────────────────────────────
 Write-Host "Compilando app web (Next.js)..." -ForegroundColor Cyan
 $releaseBuildEnvironment = @{

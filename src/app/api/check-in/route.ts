@@ -113,7 +113,7 @@ async function closeIfOpenOrCreate(
     },
     orderBy: { checkInTime: "desc" },
   });
-  if (rebound && !rebound.checkOutTime) {
+  if (intent === "checkin" && rebound && !rebound.checkOutTime) {
     return {
       ok: true as const,
       ignored: true as const,

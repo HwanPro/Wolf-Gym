@@ -93,7 +93,7 @@ export default function EditClientDialog({
       body,
     });
 
-    if (!response.ok) throw new Error("Error uploading image");
+    if (!response.ok) throw new Error("No se pudo subir la imagen");
 
     const data = await response.json();
     return data.fileUrl;
