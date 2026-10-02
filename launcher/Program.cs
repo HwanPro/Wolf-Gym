@@ -12,61 +12,63 @@ internal static class Program
     private const string BioUrl = "http://127.0.0.1:8001/health";
     private const string ReleaseApiUrl = "https://api.github.com/repos/HwanPro/Wolf-Gym/releases/latest";
 
+    internal static string AppUrl => WebUrl;
+
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(2) };
     private static readonly HttpClient UpdateHttp = new() { Timeout = TimeSpan.FromMinutes(20) };
     private static readonly List<Process> StartedProcesses = [];
     private static string _logDir = "";
+    private static string _rootDir = "";
+    private static bool _shutdown;
 
-    private static async Task<int> Main(string[] args)
+    [STAThread]
+    private static void Main(string[] args)
     {
-        Console.Title = "WolfGym Launcher";
-        var root = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        _logDir = Path.Combine(root, "logs");
-        Directory.CreateDirectory(_logDir);
+        ApplicationConfiguration.Initialize();
+        Application.Run(new LauncherForm(args));
+    }
 
-        Console.WriteLine("==========================================");
-        Console.WriteLine(" WOLF GYM - Iniciando sistema");
-        Console.WriteLine("==========================================");
-        Console.WriteLine();
-        Console.WriteLine($"Carpeta: {root}");
+    internal static async Task<bool> StartAsync(
+        string[] args,
+        Action<string> setStatus,
+        CancellationToken cancellationToken)
+    {
+        _rootDir = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        _logDir = Path.Combine(_rootDir, "logs");
+        Directory.CreateDirectory(_logDir);
+        _shutdown = false;
+        setStatus("Verificando actualizaciones...");
 
         if (!args.Contains("--skip-update", StringComparer.OrdinalIgnoreCase))
         {
-            var updateStarted = await CheckAndInstallUpdateAsync(root);
-            if (updateStarted)
-            {
-                // Si hay instancia previa de web/biometrico corriendo, detenerla antes de salir.
-                StopKnownRuntimeProcesses();
-                Http.Dispose();
-                UpdateHttp.Dispose();
-                return 0;
-            }
+            var updateStarted = await CheckAndInstallUpdateAsync(_rootDir, setStatus);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (updateStarted) return true;
         }
 
-        var bioDir = Path.Combine(root, "biometric");
+        var bioDir = Path.Combine(_rootDir, "biometric");
         var bioExe = Path.Combine(bioDir, "WolfGym.BiometricService.exe");
-        var webDir = Path.Combine(root, "webapp");
-        var nodeExe = Path.Combine(root, "runtime", "node.exe");
+        var webDir = Path.Combine(_rootDir, "webapp");
+        var nodeExe = Path.Combine(_rootDir, "runtime", "node.exe");
         var nextCli = Path.Combine(webDir, "node_modules", "next", "dist", "bin", "next");
 
         if (!File.Exists(bioExe))
         {
-            Fail($"No existe el servicio biometrico: {bioExe}");
-            return 1;
+            throw new FileNotFoundException("No existe el servicio biométrico.", bioExe);
         }
 
         if (!Directory.Exists(webDir))
         {
-            Fail($"No existe la carpeta webapp: {webDir}");
-            return 1;
+            throw new DirectoryNotFoundException($"No existe la carpeta webapp: {webDir}");
         }
 
         if (!File.Exists(nodeExe) || !File.Exists(nextCli))
         {
-            Fail("La instalacion no incluye el runtime web. Ejecuta 'wolfgym download' para repararla.");
-            return 1;
+            throw new FileNotFoundException("La instalación no incluye el runtime web. Ejecuta 'wolfgym download' para repararla.");
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
+        setStatus("Iniciando servicio biométrico...");
         if (!await IsUp(BioUrl))
         {
             StartProcess(
@@ -78,11 +80,16 @@ internal static class Program
         }
         else
         {
-            Console.WriteLine("Servicio biometrico ya estaba activo.");
+            setStatus("Servicio biométrico ya estaba activo...");
         }
 
-        await WaitFor("Servicio biometrico", BioUrl, TimeSpan.FromSeconds(20));
+        if (!await WaitFor(BioUrl, TimeSpan.FromSeconds(20), cancellationToken))
+        {
+            throw new TimeoutException($"El servicio biométrico no respondió. Revisa {_logDir}\\biometric.log.");
+        }
 
+        cancellationToken.ThrowIfCancellationRequested();
+        setStatus("Iniciando aplicación web...");
         if (!await IsUp(WebUrl))
         {
             StartProcess(
@@ -94,32 +101,28 @@ internal static class Program
         }
         else
         {
-            Console.WriteLine("App web ya estaba activa.");
+            setStatus("La aplicación web ya estaba activa...");
         }
 
-        var webReady = await WaitFor("App web", WebUrl, TimeSpan.FromSeconds(45));
-        if (webReady)
+        if (!await WaitFor(WebUrl, TimeSpan.FromSeconds(45), cancellationToken))
         {
-            Process.Start(new ProcessStartInfo(WebUrl) { UseShellExecute = true });
-        }
-        else
-        {
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine("La web no respondio a tiempo. Revise logs\\web.log.");
-            Console.ResetColor();
+            throw new TimeoutException($"La aplicación web no respondió. Revisa {_logDir}\\web.log.");
         }
 
-        Console.WriteLine();
-        Console.WriteLine("Presione ENTER para detener WolfGym.");
-        Console.ReadLine();
+        setStatus("Cargando la aplicación...");
+        return false;
+    }
 
+    internal static void Shutdown()
+    {
+        if (_shutdown) return;
+        _shutdown = true;
         StopStartedProcesses();
         Http.Dispose();
         UpdateHttp.Dispose();
-        return 0;
     }
 
-    private static async Task<bool> CheckAndInstallUpdateAsync(string root)
+    private static async Task<bool> CheckAndInstallUpdateAsync(string root, Action<string> setStatus)
     {
         try
         {
@@ -156,11 +159,7 @@ internal static class Program
                 return false;
             }
 
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine();
-            Console.WriteLine($"Actualizacion disponible: {currentVersion} -> {release.TagName}");
-            Console.WriteLine("Descargando paquete desde GitHub Releases. Si falla, se usara la version instalada.");
-            Console.ResetColor();
+            setStatus($"Actualizando Wolf Gym a {release.TagName}...");
 
             var zipPath = Path.Combine(Path.GetTempPath(), $"WolfGym-{release.TagName}.zip");
             await using (var input = await UpdateHttp.GetStreamAsync(asset.BrowserDownloadUrl))
@@ -184,7 +183,7 @@ internal static class Program
                 throw new InvalidDataException("El checksum SHA-256 del paquete no coincide.");
             }
 
-            Console.WriteLine("Integridad SHA-256 verificada.");
+            setStatus("Actualización verificada. Preparando reinicio...");
 
             var scriptPath = WriteUpdateScript(root, zipPath);
             var updaterLog = Path.Combine(_logDir, "updater.log");
@@ -211,7 +210,7 @@ internal static class Program
             }
 
             AppendLog(updaterLog, $"Actualizador iniciado. PID={updaterProcess.Id}");
-            Console.WriteLine("El actualizador terminara la instalacion y reabrira WolfGym.");
+            setStatus("La actualización reiniciará Wolf Gym al terminar.");
             return true;
         }
         catch (Exception ex)
@@ -443,7 +442,6 @@ try {
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
         StartedProcesses.Add(process);
-        Console.WriteLine($"{name} iniciado. PID: {process.Id}");
         return process;
     }
 
@@ -456,20 +454,18 @@ try {
         psi.Environment["NEXTAUTH_URL"] = "http://127.0.0.1:3000";
     }
 
-    private static async Task<bool> WaitFor(string label, string url, TimeSpan timeout)
+    private static async Task<bool> WaitFor(string url, TimeSpan timeout, CancellationToken cancellationToken)
     {
         var deadline = DateTime.UtcNow + timeout;
         while (DateTime.UtcNow < deadline)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (await IsUp(url))
             {
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine($"{label}: OK");
-                Console.ResetColor();
                 return true;
             }
 
-            await Task.Delay(1000);
+            await Task.Delay(1000, cancellationToken);
         }
 
         return false;
@@ -522,13 +518,18 @@ try {
             }
         }
 
-        // Refuerzo: si quedaron procesos vivos por fuera de StartedProcesses, cerrarlos también.
         StopKnownRuntimeProcesses();
     }
 
     private static void StopKnownRuntimeProcesses()
     {
-        foreach (var processName in new[] { "WolfGym.BiometricService", "node", "npm" })
+        var knownExecutables = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            Path.GetFullPath(Path.Combine(_rootDir, "biometric", "WolfGym.BiometricService.exe")),
+            Path.GetFullPath(Path.Combine(_rootDir, "runtime", "node.exe")),
+        };
+
+        foreach (var processName in new[] { "WolfGym.BiometricService", "node" })
         {
             try
             {
@@ -537,6 +538,13 @@ try {
                     try
                     {
                         if (process.HasExited) continue;
+                        var executablePath = process.MainModule?.FileName;
+                        if (string.IsNullOrWhiteSpace(executablePath) ||
+                            !knownExecutables.Contains(Path.GetFullPath(executablePath)))
+                        {
+                            continue;
+                        }
+
                         process.Kill(entireProcessTree: true);
                         process.WaitForExit(3000);
                     }
@@ -555,15 +563,6 @@ try {
                 // Best-effort shutdown.
             }
         }
-    }
-
-    private static void Fail(string message)
-    {
-        Console.ForegroundColor = ConsoleColor.Red;
-        Console.WriteLine(message);
-        Console.ResetColor();
-        Console.WriteLine("Presione ENTER para salir.");
-        Console.ReadLine();
     }
 
     private sealed class VersionFile

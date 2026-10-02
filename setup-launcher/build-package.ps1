@@ -372,13 +372,15 @@ $readme = @(
     "REQUISITOS PREVIOS (instalar una sola vez):",
     "  1. Driver ZKTeco ZK9500 -> incluido en el CD del dispositivo o pagina oficial",
     "  2. En una PC fisica: conectar el lector directo al USB antes de abrir WolfGym.",
-    "  3. Node.js y .NET ya vienen incluidos en el paquete; no se instalan por separado.",
+    "  3. Microsoft Edge WebView2 Runtime para mostrar la app dentro de WolfGym.",
+    "  4. Node.js y .NET ya vienen incluidos en el paquete; no se instalan por separado.",
     "",
     "COMO INICIAR:",
     "  1. Conecte el lector de huellas USB",
-    "  2. Doble clic en WolfGymLauncher.exe",
-    "  3. El navegador se abre automaticamente en http://localhost:3000",
-    "  4. Si hay una version nueva publicada en GitHub Releases, el launcher la descarga e instala automaticamente.",
+    "  2. Doble clic en el acceso directo Wolf Gym o en WolfGymLauncher.exe",
+    "  3. Wolf Gym se abre como aplicacion de escritorio y muestra la app dentro de su ventana.",
+    "  4. Cierre la ventana con la X para detener los servicios web y biometrico.",
+    "  5. Si hay una version nueva publicada en GitHub Releases, el launcher la descarga e instala automaticamente.",
     "     No requiere Git instalado ni acceso al repositorio por consola.",
     "     Si no puede descargar o instalar la actualizacion, continua con la version anterior.",
     "",
@@ -427,6 +429,39 @@ if ($CreateZip) {
     Write-Host "  SHA-256 creado: $checksumPath" -ForegroundColor Green
 }
 
+# Configuracion privada para ejecutar la carpeta local recien compilada. Se copia
+# despues de crear el ZIP para que credenciales y secretos nunca se distribuyan.
+$sourceEnv = Join-Path $ROOT ".env"
+$packagedEnv = Join-Path $WEB_DEST ".env"
+if (Test-Path -LiteralPath $sourceEnv -PathType Leaf) {
+    Copy-Item -LiteralPath $sourceEnv -Destination $packagedEnv -Force
+    Write-Host "Configuracion privada .env copiada a webapp para uso local." -ForegroundColor Green
+} else {
+    Write-Warning "No se encontro .env en la raiz. El paquete local necesita NEXTAUTH_SECRET y DATABASE_URL configurados para iniciar sesion."
+}
+
+# El build local deja un acceso directo en el Escritorio. Los builds de release
+# no deben crear accesos directos en el perfil de la maquina de CI.
+$launcherExe = Join-Path $DIST "WolfGymLauncher.exe"
+if (-not $CreateZip -and (Test-Path -LiteralPath $launcherExe -PathType Leaf)) {
+    try {
+        $desktopPath = [Environment]::GetFolderPath([Environment+SpecialFolder]::DesktopDirectory)
+        if (-not [string]::IsNullOrWhiteSpace($desktopPath)) {
+            $shortcutPath = Join-Path $desktopPath "Wolf Gym.lnk"
+            $shell = New-Object -ComObject WScript.Shell
+            $shortcut = $shell.CreateShortcut($shortcutPath)
+            $shortcut.TargetPath = $launcherExe
+            $shortcut.WorkingDirectory = $DIST
+            $shortcut.IconLocation = (Join-Path $DIST "WolfGym.ico")
+            $shortcut.Description = "Wolf Gym - Sistema de gimnasio"
+            $shortcut.Save()
+            Write-Host "Acceso directo creado: $shortcutPath" -ForegroundColor Green
+        }
+    } catch {
+        Write-Warning "No se pudo crear el acceso directo del Escritorio: $($_.Exception.Message)"
+    }
+}
+
 # ── Resumen ────────────────────────────────────────────────────────────────────
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Green
@@ -447,7 +482,7 @@ Get-ChildItem $DIST | ForEach-Object {
 }
 Write-Host ""
 if ($CreateZip) {
-    Write-Host ("Para distribuir: use el ZIP generado en dist\WolfGym-{0}.zip" -f (($Version -replace '[^A-Za-z0-9._-]', '-'))) -ForegroundColor Cyan
+    Write-Host ("Para distribuir: use el ZIP generado en dist\WolfGym-{0}.zip; no incluye el .env local." -f (($Version -replace '[^A-Za-z0-9._-]', '-'))) -ForegroundColor Cyan
 } else {
-    Write-Host ("Para distribuir: comprima la carpeta {0} en un ZIP o ejecute este script con -CreateZip" -f $DIST) -ForegroundColor Cyan
+    Write-Host "La carpeta dist incluye .env privado para pruebas locales. Para distribuir, vuelva a compilar con -CreateZip; no comparta la carpeta directamente." -ForegroundColor Cyan
 }
