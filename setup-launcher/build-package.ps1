@@ -117,9 +117,11 @@ Push-Location $ROOT
 try {
     Write-Host "  Instalando dependencias del proyecto..." -ForegroundColor Yellow
     if (Test-Path (Join-Path $ROOT "package-lock.json")) {
-        & npm ci --ignore-scripts
+        # Prisma y otras herramientas de build viven en devDependencies. Forzar
+        # su inclusion evita fallos cuando la terminal trae NODE_ENV=production.
+        & npm ci --include=dev --ignore-scripts
     } else {
-        & npm install --ignore-scripts
+        & npm install --include=dev --ignore-scripts
     }
     if ($LASTEXITCODE -ne 0) { throw "npm install fallo" }
 
