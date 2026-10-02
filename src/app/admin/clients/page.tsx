@@ -299,7 +299,8 @@ export default function ClientsPage() {
   const fingerprintCount = useMemo(
     () =>
       clients.filter(
-        (client) => client.hasFingerprint || fpStatus[client.userId],
+        (client) =>
+          fpStatus[client.userId] ?? Boolean(client.hasFingerprint),
       ).length,
     [clients, fpStatus],
   );
@@ -1361,11 +1362,11 @@ export default function ClientsPage() {
                           Eliminar
                         </Button>
                         <Button
-                          title="Eliminar huella"
+                          title={has ? "Eliminar huella" : "Este cliente no tiene una huella registrada"}
                           aria-label="Eliminar huella"
-                          className={`w-full justify-center whitespace-nowrap !border-red-500/40 !bg-red-500/10 !text-red-300 hover:!bg-red-500 hover:!text-white min-[1200px]:w-auto ${busy[uid] ? "cursor-not-allowed opacity-50" : ""}`}
+                          className={`w-full justify-center whitespace-nowrap !border-red-500/40 !bg-red-500/10 !text-red-300 hover:!bg-red-500 hover:!text-white disabled:cursor-not-allowed disabled:opacity-50 min-[1200px]:w-auto ${busy[uid] ? "cursor-not-allowed opacity-50" : ""}`}
                           onClick={() => deleteFingerprint(uid)}
-                          disabled={!!busy[uid] || !!deleting[uid]}
+                          disabled={!has || !!busy[uid] || !!deleting[uid]}
                           variant="outline"
                         >
                           <Fingerprint className="h-4 w-4" />
@@ -1688,12 +1689,18 @@ export default function ClientsPage() {
                                 )}
                               </Button>
                             </ActionTooltip>
-                            <ActionTooltip label="Eliminar huella registrada">
+                            <ActionTooltip
+                              label={
+                                has
+                                  ? "Eliminar huella registrada"
+                                  : "Este cliente no tiene una huella registrada"
+                              }
+                            >
                               <Button
                                 aria-label="Eliminar huella registrada"
-                                className={`h-9 w-9 p-0 !border-red-500/40 !bg-red-500/10 !text-red-300 hover:!bg-red-500 hover:!text-white ${busy[uid] ? "cursor-not-allowed opacity-50" : ""}`}
+                                className={`h-9 w-9 p-0 !border-red-500/40 !bg-red-500/10 !text-red-300 hover:!bg-red-500 hover:!text-white disabled:cursor-not-allowed disabled:opacity-50 ${busy[uid] ? "cursor-not-allowed opacity-50" : ""}`}
                                 onClick={() => deleteFingerprint(uid)}
-                                disabled={!!busy[uid] || !!deleting[uid]}
+                                disabled={!has || !!busy[uid] || !!deleting[uid]}
                                 variant="outline"
                               >
                                 <Fingerprint className="h-4 w-4" />
