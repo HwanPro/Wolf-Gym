@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Data.Common;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -432,6 +433,10 @@ try {
         {
             SetWebEnvironment(psi);
         }
+        else if (name == "Biometric")
+        {
+            SetBiometricEnvironment(psi, Path.Combine(_rootDir, "webapp"));
+        }
 
         var process = new Process { StartInfo = psi, EnableRaisingEvents = true };
         process.OutputDataReceived += (_, e) => AppendLog(logPath, e.Data);
@@ -452,6 +457,144 @@ try {
         psi.Environment["NEXT_PUBLIC_BIOMETRIC_BASE"] = "http://127.0.0.1:8001";
         psi.Environment["NEXT_PUBLIC_KIOSK"] = "1";
         psi.Environment["NEXTAUTH_URL"] = "http://127.0.0.1:3000";
+    }
+
+    private static void SetBiometricEnvironment(ProcessStartInfo psi, string webDirectory)
+    {
+        var databaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
+        if (string.IsNullOrWhiteSpace(databaseUrl))
+        {
+            foreach (var fileName in new[]
+                     {
+                         ".env.production.local",
+                         ".env.local",
+                         ".env.production",
+                         ".env",
+                     })
+            {
+                var envPath = Path.Combine(webDirectory, fileName);
+                if (!File.Exists(envPath)) continue;
+
+                var values = ReadEnvironmentFile(envPath);
+                if (values.TryGetValue("DATABASE_URL", out databaseUrl) &&
+                    !string.IsNullOrWhiteSpace(databaseUrl))
+                {
+                    break;
+                }
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(databaseUrl))
+        {
+            throw new InvalidOperationException(
+                "No se encontró DATABASE_URL. Configúrala en webapp\\.env o en las variables de entorno antes de iniciar Wolf Gym.");
+        }
+
+        psi.Environment["ConnectionStrings__DefaultConnection"] =
+            BuildNpgsqlConnectionString(databaseUrl);
+    }
+
+    private static Dictionary<string, string> ReadEnvironmentFile(string path)
+    {
+        var values = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var originalLine in File.ReadLines(path))
+        {
+            var line = originalLine.Trim();
+            if (line.Length == 0 || line.StartsWith('#')) continue;
+            if (line.StartsWith("export ", StringComparison.Ordinal))
+            {
+                line = line[7..].TrimStart();
+            }
+
+            var separator = line.IndexOf('=');
+            if (separator <= 0) continue;
+
+            var key = line[..separator].Trim();
+            var value = line[(separator + 1)..].Trim();
+            if (value.Length >= 2 &&
+                ((value[0] == '"' && value[^1] == '"') ||
+                 (value[0] == '\'' && value[^1] == '\'')))
+            {
+                var quote = value[0];
+                value = value[1..^1];
+                if (quote == '"')
+                {
+                    value = value
+                        .Replace("\\n", "\n", StringComparison.Ordinal)
+                        .Replace("\\r", "\r", StringComparison.Ordinal)
+                        .Replace("\\\"", "\"", StringComparison.Ordinal)
+                        .Replace("\\\\", "\\", StringComparison.Ordinal);
+                }
+            }
+            else
+            {
+                var comment = value.IndexOf(" #", StringComparison.Ordinal);
+                if (comment >= 0) value = value[..comment].TrimEnd();
+            }
+
+            values[key] = value;
+        }
+
+        return values;
+    }
+
+    private static string BuildNpgsqlConnectionString(string databaseUrl)
+    {
+        if (!Uri.TryCreate(databaseUrl, UriKind.Absolute, out var uri) ||
+            (uri.Scheme != "postgresql" && uri.Scheme != "postgres"))
+        {
+            throw new InvalidOperationException(
+                "DATABASE_URL debe ser una URL PostgreSQL con formato postgresql://usuario:contraseña@host/base.");
+        }
+
+        var userInfo = uri.UserInfo.Split(':', 2);
+        if (userInfo.Length != 2 || string.IsNullOrWhiteSpace(uri.Host))
+        {
+            throw new InvalidOperationException(
+                "DATABASE_URL debe incluir usuario, contraseña y host de PostgreSQL.");
+        }
+
+        var connection = new DbConnectionStringBuilder
+        {
+            ["Host"] = uri.Host,
+            ["Database"] = Uri.UnescapeDataString(uri.AbsolutePath.TrimStart('/')),
+            ["Username"] = Uri.UnescapeDataString(userInfo[0]),
+            ["Password"] = Uri.UnescapeDataString(userInfo[1]),
+        };
+        if (uri.Port > 0) connection["Port"] = uri.Port;
+
+        var query = uri.Query.TrimStart('?');
+        foreach (var pair in query.Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var parts = pair.Split('=', 2);
+            if (parts.Length != 2) continue;
+
+            var key = Uri.UnescapeDataString(parts[0].Replace('+', ' '));
+            var value = Uri.UnescapeDataString(parts[1].Replace('+', ' '));
+            if (key.Equals("sslmode", StringComparison.OrdinalIgnoreCase))
+            {
+                connection["SSL Mode"] = value.ToLowerInvariant() switch
+                {
+                    "disable" => "Disable",
+                    "allow" => "Allow",
+                    "prefer" => "Prefer",
+                    "require" => "Require",
+                    "verify-ca" => "VerifyCA",
+                    "verify-full" => "VerifyFull",
+                    _ => throw new InvalidOperationException("DATABASE_URL contiene un valor sslmode no reconocido."),
+                };
+            }
+            else if (key.Equals("connect_timeout", StringComparison.OrdinalIgnoreCase))
+            {
+                connection["Timeout"] = value;
+            }
+            else if (key.Equals("application_name", StringComparison.OrdinalIgnoreCase))
+            {
+                connection["Application Name"] = value;
+            }
+        }
+
+        return connection.ConnectionString;
     }
 
     private static async Task<bool> WaitFor(string url, TimeSpan timeout, CancellationToken cancellationToken)

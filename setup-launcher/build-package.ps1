@@ -79,7 +79,7 @@ if (Test-Path $packagedConfigPath) {
     $packagedConfig = Get-Content -LiteralPath $packagedConfigPath -Raw | ConvertFrom-Json
     $packagedConfig.ConnectionStrings.DefaultConnection = ""
     $packagedConfig | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $packagedConfigPath -Encoding UTF8
-    Write-Host "  Config biometrica sanitizada; los secretos se conservan localmente" -ForegroundColor Green
+    Write-Host "  Config biometrica sanitizada; el launcher usara DATABASE_URL del .env local" -ForegroundColor Green
 }
 
 # ASP.NET carga este archivo despues de appsettings.json. No debe viajar en el
@@ -399,7 +399,8 @@ $readme = @(
     "  - Si aparece codigo -1 del SDK, Windows no esta viendo el lector/driver aunque la web este abierta.",
     "",
     "CONEXION A BASE DE DATOS:",
-    "  Configure las variables o appsettings.json antes de produccion.",
+    "  Para el paquete local, DATABASE_URL se lee de webapp\.env y se entrega al servicio biometrico al iniciar.",
+    "  Para una instalacion distribuida, configure DATABASE_URL como variable de entorno o en webapp\.env.",
     "",
     "SOPORTE:",
     "  Revise los logs en la carpeta biometric\logs\"
@@ -439,7 +440,7 @@ if (Test-Path -LiteralPath $sourceEnv -PathType Leaf) {
     Copy-Item -LiteralPath $sourceEnv -Destination $packagedEnv -Force
     Write-Host "Configuracion privada .env copiada a webapp para uso local." -ForegroundColor Green
 } else {
-    Write-Warning "No se encontro .env en la raiz. El paquete local necesita NEXTAUTH_SECRET y DATABASE_URL configurados para iniciar sesion."
+    Write-Warning "No se encontro .env en la raiz. El paquete necesita NEXTAUTH_SECRET y DATABASE_URL para iniciar sesion y guardar huellas."
 }
 
 # El build local deja un acceso directo en el Escritorio. Los builds de release
