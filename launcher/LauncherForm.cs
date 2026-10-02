@@ -98,6 +98,13 @@ internal sealed class LauncherForm : Form
                 "WebView2");
             var environment = await CoreWebView2Environment.CreateAsync(userDataFolder: profileDir);
             await _webView.EnsureCoreWebView2Async(environment);
+            _webView.CoreWebView2.NavigationCompleted += (_, navigation) =>
+            {
+                if (navigation.IsSuccess && !_isClosing)
+                {
+                    _status.Visible = false;
+                }
+            };
             _webView.CoreWebView2.Navigate(Program.AppUrl);
             SetStatus("Sistema listo · cerrar esta ventana detiene los servicios");
         }
