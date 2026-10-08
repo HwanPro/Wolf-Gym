@@ -471,6 +471,12 @@ export default function WolfGymLanding() {
       )}
 
       <main className="flex-1">
+        <p
+          role="status"
+          className="bg-[#FFC21A] px-5 py-4 text-center text-lg font-black text-black"
+        >
+          Prueba de actualización v0.2.1
+        </p>
         <section
           className="relative isolate flex min-h-[92svh] w-full items-center overflow-hidden bg-[#0A0A0A] px-5 py-16 text-white sm:px-8 lg:px-12"
           role="banner"
