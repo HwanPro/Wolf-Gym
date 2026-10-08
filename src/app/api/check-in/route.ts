@@ -1,3 +1,5 @@
+import type { NextRequest } from "next/server";
+import { requireAdmin } from "@/server/auth/authorization";
 // src/app/api/check-in/route.ts
 import { NextResponse } from "next/server";
 import prisma from "@/infrastructure/prisma/prisma";
@@ -34,15 +36,17 @@ async function resolveUserIdByIdentifier(identifierRaw?: string | null) {
   if (documentNumber) profileOrConditions.push({ documentNumber });
 
   if (profileOrConditions.length) {
-    const profile = await prisma.clientProfile.findFirst({
+    const profiles = await prisma.clientProfile.findMany({
       where: { OR: profileOrConditions },
       include: { user: { select: { id: true } } },
+      take: 2,
     });
-    if (profile?.user?.id) return profile.user.id;
+    if (profiles.length > 1) throw new Error("ambiguous_identifier");
+    if (profiles[0]?.user?.id) return profiles[0].user.id;
   }
 
   if (phoneLast9) {
-    const userByPhone = await prisma.user.findFirst({
+    const usersByPhone = await prisma.user.findMany({
       where: {
         OR: [
           { phoneNumber: phoneLast9 },
@@ -51,8 +55,10 @@ async function resolveUserIdByIdentifier(identifierRaw?: string | null) {
         ],
       },
       select: { id: true },
+      take: 2,
     });
-    if (userByPhone?.id) return userByPhone.id;
+    if (usersByPhone.length > 1) throw new Error("ambiguous_identifier");
+    if (usersByPhone[0]?.id) return usersByPhone[0].id;
   }
 
   return null;
@@ -73,114 +79,121 @@ async function closeIfOpenOrCreate(
 ) {
   await autoCloseExpiredAttendances(now);
 
-  const { start, end } = getLimaDayRange(now);
+  return prisma.$transaction(async (transaction) => {
+    // PostgreSQL serializes requests for the same user across tabs and processes.
+    await transaction.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${userId}))`;
 
-  const profile = await prisma.clientProfile.findUnique({
-    where: { user_id: userId },
-    select: {
-      profile_end_date: true,
-      debt: true,
-    },
-  });
+    const { start, end } = getLimaDayRange(now);
 
-  if (intent === "checkin" && !isGymOpen(now)) {
-    return {
-      ok: false as const,
-      reason: "gym_closed" as const,
-      message: "El gimnasio está cerrado en este horario",
-    };
-  }
+    const profile = await transaction.clientProfile.findUnique({
+      where: { user_id: userId },
+      select: {
+        profile_end_date: true,
+        debt: true,
+      },
+    });
 
-  const membership = getMembershipStatus(profile?.profile_end_date, now);
-  if (intent === "checkin" && membership.expired) {
-    return {
-      ok: false as const,
-      reason: "membership_expired" as const,
-      message: "Membresía vencida. Renovar antes de marcar entrada",
-      endDate: profile?.profile_end_date ?? null,
-      monthlyDebt:
-        profile?.debt !== null && profile?.debt !== undefined
-          ? Number(profile.debt)
-          : 0,
-    };
-  }
-
-  // Antirrebote: si acaban de hacer check-in abierto, ignorar
-  const rebound = await prisma.attendance.findFirst({
-    where: {
-      userId,
-      checkInTime: { gte: new Date(now.getTime() - REBOUND_SECONDS * 1000) },
-    },
-    orderBy: { checkInTime: "desc" },
-  });
-  if (intent === "checkin" && rebound && !rebound.checkOutTime) {
-    return {
-      ok: true as const,
-      ignored: true as const,
-      type: "rebote" as const,
-    };
-  }
-
-  // ¿Hay sesión abierta hoy?
-  const open = await prisma.attendance.findFirst({
-    where: {
-      userId,
-      checkInTime: { gte: start, lte: end },
-      checkOutTime: null,
-    },
-    orderBy: { checkInTime: "desc" },
-  });
-
-  if (open) {
-    if (intent === "checkin") {
+    if (intent === "checkin" && !isGymOpen(now)) {
       return {
-        ok: true as const,
-        ignored: true as const,
-        type: "already_open" as const,
-        record: open,
+        ok: false as const,
+        reason: "gym_closed" as const,
+        message: "El gimnasio está cerrado en este horario",
       };
     }
 
-    // Cerrar (checkout)
-    const salida = now;
-    const durationMins = Math.max(
-      0,
-      Math.round(
-        (salida.getTime() - new Date(open.checkInTime).getTime()) / 60000,
-      ),
-    );
-    const updated = await prisma.attendance.update({
-      where: { id: open.id },
-      data: { checkOutTime: salida, durationMins },
+    const membership = getMembershipStatus(profile?.profile_end_date, now);
+    if (intent === "checkin" && membership.expired) {
+      return {
+        ok: false as const,
+        reason: membership.daysLeft === null ? "membership_required" as const : "membership_expired" as const,
+        message: membership.daysLeft === null
+          ? "Asigna una membresía vigente antes de marcar entrada"
+          : "Membresía vencida. Renovar antes de marcar entrada",
+        endDate: profile?.profile_end_date ?? null,
+        monthlyDebt:
+          profile?.debt !== null && profile?.debt !== undefined
+            ? Number(profile.debt)
+            : 0,
+      };
+    }
+
+    // Antirrebote: si acaban de hacer check-in abierto, ignorar
+    const rebound = await transaction.attendance.findFirst({
+      where: {
+        userId,
+        checkInTime: { gte: new Date(now.getTime() - REBOUND_SECONDS * 1000) },
+      },
+      orderBy: { checkInTime: "desc" },
     });
-    return { ok: true as const, type: "checkout" as const, record: updated };
-  }
+    if (intent === "checkin" && rebound && !rebound.checkOutTime) {
+      return {
+        ok: true as const,
+        ignored: true as const,
+        type: "rebote" as const,
+      };
+    }
 
-  if (intent === "checkout") {
-    return {
-      ok: false as const,
-      reason: "no_open_attendance" as const,
-      message: "No hay una entrada abierta para registrar salida",
-    };
-  }
+    // ¿Hay sesión abierta hoy?
+    const open = await transaction.attendance.findFirst({
+      where: {
+        userId,
+        checkInTime: { gte: start, lte: end },
+        checkOutTime: null,
+      },
+      orderBy: { checkInTime: "desc" },
+    });
 
-  // Límite por día (solo contamos check-ins del día)
-  const count = await prisma.attendance.count({
-    where: { userId, checkInTime: { gte: start, lte: end } },
+    if (open) {
+      if (intent === "checkin") {
+        return {
+          ok: true as const,
+          ignored: true as const,
+          type: "already_open" as const,
+          record: open,
+        };
+      }
+
+      // Cerrar (checkout)
+      const salida = now;
+      const durationMins = Math.max(
+        0,
+        Math.round(
+          (salida.getTime() - new Date(open.checkInTime).getTime()) / 60000,
+        ),
+      );
+      const updated = await transaction.attendance.update({
+        where: { id: open.id },
+        data: { checkOutTime: salida, durationMins },
+      });
+      return { ok: true as const, type: "checkout" as const, record: updated };
+    }
+
+    if (intent === "checkout") {
+      return {
+        ok: false as const,
+        reason: "no_open_attendance" as const,
+        message: "No hay una entrada abierta para registrar salida",
+      };
+    }
+
+    // Límite por día (solo contamos check-ins del día)
+    const count = await transaction.attendance.count({
+      where: { userId, checkInTime: { gte: start, lte: end } },
+    });
+    if (count >= MAX_ENTRIES_PER_DAY) {
+      return {
+        ok: false as const,
+        reason: "limit_reached" as const,
+        message: "Límite de entradas diarias alcanzado",
+      };
+    }
+
+    // Crear (checkin)
+    const created = await transaction.attendance.create({
+      data: { userId, checkInTime: now, channel },
+    });
+    return { ok: true as const, type: "checkin" as const, record: created };
   });
-  if (count >= MAX_ENTRIES_PER_DAY) {
-    return {
-      ok: false as const,
-      reason: "limit_reached" as const,
-      message: "Límite de entradas diarias alcanzado",
-    };
-  }
-
-  // Crear (checkin)
-  const created = await prisma.attendance.create({
-    data: { userId, checkInTime: now, channel },
-  });
-  return { ok: true as const, type: "checkin" as const, record: created };
 }
 
 /* ============= Perfil / datos a mostrar ============= */
@@ -246,7 +259,10 @@ async function getProfileInfo(userId: string, now = new Date()) {
 }
 
 /* ==================== Handler ==================== */
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
+  const authorization = await requireAdmin(req);
+  if (!authorization.authorized) return authorization.response;
+
   try {
     const body: unknown = await req.json().catch(() => ({}));
     const input =
@@ -437,6 +453,9 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   } catch (error: unknown) {
+    if (error instanceof Error && error.message === "ambiguous_identifier") {
+      return NextResponse.json({ok:false,reason:"ambiguous_identifier",message:"El identificador pertenece a varios clientes. Corrige los duplicados antes de registrar."},{status:409});
+    }
     console.error("check-in error:", error);
     return NextResponse.json(
       { ok: false, message: "Error interno del servidor" },

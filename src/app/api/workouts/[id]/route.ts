@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { authOptions } from "@/lib/auth-options";
 import { PrismaClient } from "@prisma/client";
 import { z } from "zod";
 
@@ -14,7 +14,7 @@ const updateWorkoutSchema = z.object({
 // PATCH /api/workouts/[id] - actualizar nombre/notas de la sesión
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -25,7 +25,7 @@ export async function PATCH(
     const body = await req.json();
     const data = updateWorkoutSchema.parse(body);
 
-    const workout = await prisma.workoutSession.findUnique({ where: { id: params.id } });
+    const workout = await prisma.workoutSession.findUnique({ where: { id: (await params).id } });
     if (!workout || workout.userId !== session.user.id) {
       return NextResponse.json({ error: "Entrenamiento no encontrado" }, { status: 404 });
     }
@@ -34,7 +34,7 @@ export async function PATCH(
     const notes = data.name ? `${data.name}${data.notes ? ` — ${data.notes}` : ""}` : data.notes;
 
     const updated = await prisma.workoutSession.update({
-      where: { id: params.id },
+      where: { id: (await params).id },
       data: {
         notes
       },

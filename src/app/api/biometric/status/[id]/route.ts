@@ -1,10 +1,15 @@
+import type { NextRequest } from "next/server";
+import { requireAdmin } from "@/server/auth/authorization";
 // src/app/api/biometric/status/[id]/route.ts
 import { NextResponse } from "next/server";
 import prisma from "@/infrastructure/prisma/prisma";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const authorization = await requireAdmin(_req);
+  if (!authorization.authorized) return authorization.response;
+
   const { id } = await ctx.params;
 
   try {

@@ -2,10 +2,12 @@ import { NextResponse } from "next/server";
 import crypto from "crypto";
 import prisma from "@/infrastructure/prisma/prisma";
 import { getAppBaseUrl, sendPasswordResetEmail } from "@/lib/mail";
+import { PersistentRateLimitStore } from "@/server/security/persistent-rate-limit";
+const resetAttempts = new PersistentRateLimitStore("password-recovery");
 
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
 const GENERIC_RESPONSE =
-  "Si el usuario o correo esta registrado, recibiras un enlace para restablecer tu contrasena.";
+  "Si la cuenta tiene un correo verificado, intentaremos enviar un enlace para restablecer tu contraseña. Si no llega, vuelve a intentarlo más tarde o consulta con recepción.";
 
 function normalizeIdentifier(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -21,24 +23,29 @@ function isEmail(value: string) {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
+    const body = await request.json().catch(() => null);
     const identifier = normalizeIdentifier(
-      body.identifier || body.email || body.username,
+      body?.identifier || body?.email || body?.username,
     );
 
-    if (!identifier) {
+    if (!identifier || identifier.length > 254) {
       return NextResponse.json(
         { message: "Ingresa tu usuario o correo electronico" },
         { status: 400 },
       );
     }
+    const limit = await resetAttempts.consume(identifier.toLowerCase(), 3, 15 * 60 * 1000);
+    if (!limit.allowed) return NextResponse.json(
+      { message: "Demasiadas solicitudes. Inténtalo más tarde." },
+      { status: 429, headers: { "Retry-After": String(limit.retryAfterSeconds) } },
+    );
 
     const user = await findUserByIdentifier(identifier);
     if (!user) {
       return NextResponse.json({ message: GENERIC_RESPONSE });
     }
 
-    const destinationEmail = await getUserRecoveryEmail(user.id, user.username);
+    const destinationEmail = await getUserRecoveryEmail(user.id);
     if (!destinationEmail) {
       return NextResponse.json({ message: GENERIC_RESPONSE });
     }
@@ -73,12 +80,11 @@ export async function POST(request: Request) {
     );
 
     return NextResponse.json({ message: GENERIC_RESPONSE });
-  } catch (error) {
-    console.error("Error al enviar correo de recuperacion:", error);
-    return NextResponse.json(
-      { message: "No se pudo enviar el correo de recuperacion." },
-      { status: 500 },
-    );
+  } catch {
+    // A recipient-specific delivery failure must not reveal account existence.
+    // Do not log the SMTP error: provider errors can contain credentials.
+    console.warn("Password recovery delivery could not be confirmed");
+    return NextResponse.json({ message: GENERIC_RESPONSE });
   }
 }
 
@@ -123,9 +129,7 @@ async function findUserByIdentifier(identifier: string) {
   });
 }
 
-async function getUserRecoveryEmail(userId: string, username: string) {
-  if (isEmail(username)) return username;
-
+async function getUserRecoveryEmail(userId: string) {
   const verification = await prisma.emailVerification.findUnique({
     where: { userId },
     select: { email: true, verified: true },

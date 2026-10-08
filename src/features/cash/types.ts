@@ -1,0 +1,9 @@
+export type Product = { item_id: string; item_name: string; item_sku: string | null; item_category: string | null; item_price: number; item_discount: number | null; item_stock: number; track_stock: boolean };
+export type Tender = { method: string; amount: number; reference: string };
+export type Sale = { id: string; number: number; sessionId: string; customerName: string; status: string; totalCents: number; paidCents: number; dueCents: number; changeCents: number; createdAt: string; note: string; voidReason: string | null; lines: { id: string; productName: string; quantity: number; unitCents: number; totalCents: number }[]; payments: { payment_id: number; payment_amount: string; tenderMethod: string; payment_status: string; externalRef: string | null }[] };
+export type Session = { id: string; status: string; openingCents: number; expectedCents: number; openedAt: string; closedAt: string | null; countedCents: number | null; differenceCents: number | null; movements?: { id: string; kind: string; amountCents: number; reason: string; createdAt: string }[] };
+export type CashData = { products: Product[]; clients: { id: string; username: string; firstName: string; lastName: string }[]; session: Session | null; sessions: Session[]; sales: Sale[]; receivables: Sale[]; date: string; totals: { _count: number; _sum: { totalCents: number | null; dueCents: number | null } }; payments: { tenderMethod: string; _sum: { payment_amount: string | null } }[] };
+export type CashAction = (kind: string, body: unknown) => Promise<unknown>;
+export const sol = (cents: number) => new Intl.NumberFormat("es-PE", { style: "currency", currency: "PEN" }).format(cents / 100);
+export const methods = { CASH: "Efectivo", YAPE: "Yape", PLIN: "Plin", CARD: "Tarjeta", TRANSFER: "Transferencia", OTHER: "Otro" };
+export const statusName = (status: string) => ({ COMPLETED: "Pagada", CREDIT: "Saldo pendiente", VOIDED: "Anulada" }[status] ?? status);

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { authOptions } from "@/lib/auth-options";
 import { PrismaClient } from "@prisma/client";
 import { z } from "zod";
 
@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
     if (searchParams.get("level")) {
       where.level = searchParams.get("level");
     }
-    if (searchParams.get("published")) {
+    if (session.user?.role === 'admin' && searchParams.get("published")) {
       where.isPublished = searchParams.get("published") === 'true';
     }
 
@@ -52,6 +52,7 @@ export async function GET(req: NextRequest) {
         where,
         include: {
           routines: {
+            ...(session.user?.role !== 'admin' ? { where: { isPublished: true } } : {}),
             include: {
               items: {
                 include: {

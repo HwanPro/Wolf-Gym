@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/app/api/auth/[...nextauth]/route";
-import { PrismaClient } from "@prisma/client";
+import { authOptions } from "@/lib/auth-options";
+import { PrismaClient, type Prisma } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
@@ -12,7 +12,7 @@ function calculateOneRepMax(weight: number, reps: number): number {
 }
 
 // Función para generar sugerencias de progresión
-async function generateProgressSuggestions(userId: string, exerciseId: string) {
+async function generateProgressSuggestions(prisma: Prisma.TransactionClient, userId: string, exerciseId: string) {
   // Obtener las últimas 3 sesiones de este ejercicio
   const recentSets = await prisma.workoutSet.findMany({
     where: {
@@ -72,7 +72,7 @@ async function generateProgressSuggestions(userId: string, exerciseId: string) {
 // PUT - Completar entrenamiento
 export async function PUT(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -80,9 +80,12 @@ export async function PUT(
       return NextResponse.json({ error: "No autorizado" }, { status: 401 });
     }
 
+    const id = (await params).id;
+    return await prisma.$transaction(async (prisma) => {
+      await prisma.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'workout:' + id}))`;
     // Verificar que el entrenamiento existe y pertenece al usuario
     const workout = await prisma.workoutSession.findUnique({
-      where: { id: params.id },
+      where: { id: (await params).id },
       include: {
         exercises: {
           include: {
@@ -117,7 +120,7 @@ export async function PUT(
 
     for (const exercise of workout.exercises) {
       const workingSets = exercise.sets.filter(set => !set.isWarmup);
-      
+
       for (const set of workingSets) {
         totalVolume += set.weight * set.reps;
         totalSets += 1;
@@ -131,7 +134,7 @@ export async function PUT(
               workoutSession: {
                 userId: session.user.id,
                 status: 'completed',
-                id: { not: params.id }
+                id: { not: (await params).id }
               }
             },
             isWarmup: false
@@ -156,8 +159,8 @@ export async function PUT(
       }
 
       // Generar sugerencias de progresión para el próximo entrenamiento
-      const suggestion = await generateProgressSuggestions(session.user.id, exercise.exerciseId);
-      
+      const suggestion = await generateProgressSuggestions(prisma, session.user.id, exercise.exerciseId);
+
       if (suggestion) {
         await prisma.exerciseProgressSuggestion.upsert({
           where: {
@@ -183,7 +186,7 @@ export async function PUT(
 
     // Actualizar el entrenamiento
     const updatedWorkout = await prisma.workoutSession.update({
-      where: { id: params.id },
+      where: { id: (await params).id },
       data: {
         status: 'completed',
         endTime: new Date(),
@@ -197,11 +200,12 @@ export async function PUT(
       totalVolume,
       totalSets,
       totalReps,
-      duration: updatedWorkout.endTime && updatedWorkout.startTime ? 
+      duration: updatedWorkout.endTime && updatedWorkout.startTime ?
         Math.round((updatedWorkout.endTime.getTime() - updatedWorkout.startTime.getTime()) / 1000 / 60) : 0,
       prs
     });
 
+    });
   } catch (error) {
     console.error("Error al completar entrenamiento:", error);
     return NextResponse.json(

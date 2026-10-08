@@ -1,10 +1,10 @@
+import { assertExternalWrites } from "@/server/security/external-writes";
 import { NextRequest, NextResponse } from "next/server";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { requireAdmin } from "@/server/auth/authorization";
 import {
   safeStorageSegment,
-  validateUploadFile,
-} from "@/server/files/file-validation";
+  validateUploadFile, safeUploadBuffer } from "@/server/files/file-validation";
 
 // Configuración del cliente S3
 const s3Client = new S3Client({
@@ -33,8 +33,8 @@ export async function POST(req: NextRequest) {
 
     // Validar el tipo y tamaño del archivo
     const validationError = validateUploadFile(file, {
-      allowedTypes: ["image/jpeg", "image/png", "application/pdf"],
-      allowedExtensions: [".jpg", ".jpeg", ".png", ".pdf"],
+      allowedTypes: ["image/jpeg", "image/png", "image/webp", "application/pdf"],
+      allowedExtensions: [".jpg", ".jpeg", ".png", ".webp", ".pdf"],
       maxBytes: 5 * 1024 * 1024,
     });
     if (validationError) {
@@ -45,7 +45,8 @@ export async function POST(req: NextRequest) {
     const folder = safeStorageSegment(String(data.get("folder") || "uploads"));
 
     // Convertir el archivo a buffer
-    const buffer = Buffer.from(await file.arrayBuffer());
+    const buffer = await safeUploadBuffer(file);
+    if (!buffer) return NextResponse.json({ error: "El contenido del archivo no es válido" }, { status: 400 });
 
     // Generar nombre único para el archivo
     const fileName = `${Date.now()}-${crypto.randomUUID()}-${safeStorageSegment(file.name)}`;
@@ -57,7 +58,17 @@ export async function POST(req: NextRequest) {
       Key: fileKey,
       Body: buffer,
       ContentType: file.type || "application/octet-stream",
+      // A PDF signature is not malware screening. Serve PDFs as downloads.
+      ...(file.type === "application/pdf" ? {
+        ContentDisposition: `attachment; filename="${safeStorageSegment(file.name)}"`,
+        CacheControl: "private, no-store",
+      } : {}),
     };
+
+    if (process.env.WOLF_DISABLE_EXTERNAL_WRITES === "1") {
+      return NextResponse.json({ error: "La carga de archivos está deshabilitada en este entorno de prueba." }, { status: 503 });
+    }
+    assertExternalWrites();
 
     await s3Client.send(new PutObjectCommand(uploadParams));
 

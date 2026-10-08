@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Image from "next/image";
-import { useSession } from "next-auth/react";
+import { signOut, useSession } from "next-auth/react";
 import { Button } from "@/ui/button";
 import { toast } from "react-toastify";
 import {
@@ -74,6 +74,7 @@ export default function SecuritySettingsPage() {
       setTwoFactorQr("");
       setTwoFactorSecret("");
       setTwoFactorCode("");
+      await signOut({ callbackUrl: "/auth/login" });
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "No se pudo habilitar 2FA",
@@ -114,6 +115,7 @@ export default function SecuritySettingsPage() {
         setCurrentPassword("");
         setNewPassword("");
         setConfirmPassword("");
+        await signOut({ callbackUrl: "/auth/login" });
       } else {
         toast.error(data.message || "No se pudo cambiar la contraseña");
       }
@@ -179,7 +181,7 @@ export default function SecuritySettingsPage() {
       if (response.ok) {
         toast.success(data.message);
         // Redirect to refresh session
-        window.location.href = "/dashboard";
+        window.location.href = session?.user?.role === "admin" ? "/admin/dashboard" : "/client/dashboard";
       } else {
         toast.error(data.error || "Código de verificación inválido");
       }
@@ -216,7 +218,7 @@ export default function SecuritySettingsPage() {
               ) : (
                 <>
                   <AlertCircle className="h-5 w-5 text-yellow-500 mr-2" />
-                  <span className="text-yellow-700">
+                  <span className="text-yellow-400">
                     Tu cuenta usa nombre de usuario: {currentUsername}
                   </span>
                 </>
@@ -232,10 +234,11 @@ export default function SecuritySettingsPage() {
 
             <div className="space-y-4">
               <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700">
+                <label htmlFor="current-password" className="mb-2 block text-sm font-medium text-gray-700">
                   Contraseña actual
                 </label>
                 <input
+                  id="current-password"
                   type={showPassword ? "text" : "password"}
                   value={currentPassword}
                   onChange={(event) => setCurrentPassword(event.target.value)}
@@ -245,10 +248,11 @@ export default function SecuritySettingsPage() {
               </div>
 
               <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700">
+                <label htmlFor="new-password" className="mb-2 block text-sm font-medium text-gray-700">
                   Nueva contraseña
                 </label>
                 <input
+                  id="new-password"
                   type={showPassword ? "text" : "password"}
                   value={newPassword}
                   onChange={(event) => setNewPassword(event.target.value)}
@@ -258,10 +262,11 @@ export default function SecuritySettingsPage() {
               </div>
 
               <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700">
+                <label htmlFor="confirm-password" className="mb-2 block text-sm font-medium text-gray-700">
                   Confirmar nueva contraseña
                 </label>
                 <input
+                  id="confirm-password"
                   type={showPassword ? "text" : "password"}
                   value={confirmPassword}
                   onChange={(event) => setConfirmPassword(event.target.value)}

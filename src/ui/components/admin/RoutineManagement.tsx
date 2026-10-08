@@ -48,6 +48,7 @@ interface Exercise {
 }
 
 interface RoutineItem {
+  exerciseId: string;
   id: string;
   exercise: Exercise;
   order: number;
@@ -66,7 +67,7 @@ interface Routine {
   description?: string;
   goal: string;
   level: string;
-  dayIndex?: number;
+  dayIndex?: number | null;
   isPublished: boolean;
   items: RoutineItem[];
   _count: {
@@ -84,6 +85,7 @@ export default function RoutineManagement() {
   const [editingRoutine, setEditingRoutine] = useState<Routine | null>(null);
   const [showExercises, setShowExercises] = useState<string | null>(null);
 
+  const [published, setPublished] = useState(false);
   // Form state
   const [formData, setFormData] = useState({
     name: "",
@@ -100,6 +102,7 @@ export default function RoutineManagement() {
     targetRepsMin: number;
     targetRepsMax: number;
     targetRestSec: number;
+    targetRPE?: number;
     notes: string;
     isOptional: boolean;
   }[]>([]);
@@ -144,35 +147,11 @@ export default function RoutineManagement() {
     setLoading(true);
 
     try {
-      // Crear rutina
-      const routineResponse = await fetch('/api/routines', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
+      const routineResponse = await fetch(editingRoutine ? `/api/routines/${editingRoutine.id}` : '/api/routines', {
+        method: editingRoutine ? 'PUT' : 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({...formData, dayIndex: formData.dayIndex ?? null, isPublished: published, items: selectedExercises.map((item, i) => ({...item, order: i + 1}))})
       });
-
       if (routineResponse.ok) {
-        const routine = await routineResponse.json();
-        
-        // Agregar ejercicios a la rutina
-        for (let i = 0; i < selectedExercises.length; i++) {
-          const exerciseData = selectedExercises[i];
-          await fetch(`/api/routines/${routine.id}/items`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              exerciseId: exerciseData.exerciseId,
-              order: i + 1,
-              targetSets: exerciseData.targetSets,
-              targetRepsMin: exerciseData.targetRepsMin,
-              targetRepsMax: exerciseData.targetRepsMax,
-              targetRestSec: exerciseData.targetRestSec,
-              notes: exerciseData.notes,
-              isOptional: exerciseData.isOptional
-            })
-          });
-        }
-
         await loadRoutines();
         resetForm();
         setIsCreateDialogOpen(false);
@@ -216,6 +195,7 @@ export default function RoutineManagement() {
       dayIndex: undefined
     });
     setSelectedExercises([]);
+    setEditingRoutine(null); setPublished(false);
   };
 
   const addExerciseToRoutine = () => {
@@ -240,8 +220,8 @@ export default function RoutineManagement() {
     setSelectedExercises(updated);
   };
 
-  const getDayName = (dayIndex?: number) => {
-    if (dayIndex === undefined) return "Flexible";
+  const getDayName = (dayIndex?: number | null) => {
+    if (dayIndex == null) return "Flexible";
     const days = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
     return days[dayIndex];
   };
@@ -253,16 +233,18 @@ export default function RoutineManagement() {
         <h1 className="text-2xl font-bold text-white">Gestión de Rutinas</h1>
         <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
           <DialogTrigger asChild>
-            <Button className="bg-yellow-400 text-black hover:bg-yellow-500">
+            <Button onClick={resetForm} className="bg-yellow-400 text-black hover:bg-yellow-500">
               <Plus className="h-4 w-4 mr-2" />
               Nueva Rutina
             </Button>
           </DialogTrigger>
           <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Crear Nueva Rutina</DialogTitle>
+              <DialogTitle>{editingRoutine ? "Editar Rutina" : "Crear Nueva Rutina"}</DialogTitle>
             </DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-6">
+<label><input type="checkbox" checked={published} onChange={e => setPublished(e.target.checked)} /> Publicada</label>
+
               {/* Información básica */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -280,14 +262,14 @@ export default function RoutineManagement() {
                     value={formData.dayIndex?.toString() || ""} 
                     onValueChange={(value) => setFormData(prev => ({ 
                       ...prev, 
-                      dayIndex: value ? parseInt(value) : undefined 
+                      dayIndex: value === 'all' ? undefined : Number(value)
                     }))}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Día flexible" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">Flexible</SelectItem>
+                      <SelectItem value="all">Flexible</SelectItem>
                       <SelectItem value="0">Domingo</SelectItem>
                       <SelectItem value="1">Lunes</SelectItem>
                       <SelectItem value="2">Martes</SelectItem>
@@ -415,6 +397,20 @@ export default function RoutineManagement() {
                           </Button>
                         </div>
                       </div>
+                      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <label className="text-sm">Descanso (segundos)
+                          <Input type="number" min="0" step="1" required
+                            aria-label={`Descanso del ejercicio ${index + 1}`}
+                            value={item.targetRestSec}
+                            onChange={event => updateExerciseInRoutine(index, 'targetRestSec', Number(event.target.value))} />
+                        </label>
+                        <label className="text-sm">Esfuerzo RPE (1–10, opcional)
+                          <Input type="number" min="1" max="10" step="0.5"
+                            aria-label={`Esfuerzo RPE del ejercicio ${index + 1}`}
+                            value={item.targetRPE ?? ''}
+                            onChange={event => updateExerciseInRoutine(index, 'targetRPE', event.target.value === '' ? undefined : Number(event.target.value))} />
+                        </label>
+                      </div>
                     </Card>
                   ))}
                 </div>
@@ -434,7 +430,7 @@ export default function RoutineManagement() {
                   disabled={loading || selectedExercises.length === 0}
                   className="bg-yellow-400 text-black hover:bg-yellow-500"
                 >
-                  {loading ? 'Creando...' : 'Crear Rutina'}
+                  {loading ? 'Guardando...' : editingRoutine ? 'Guardar Rutina' : 'Crear Rutina'}
                 </Button>
               </div>
             </form>
@@ -460,12 +456,12 @@ export default function RoutineManagement() {
             </div>
             <div>
               <Label className="text-white">Objetivo</Label>
-              <Select value={filterGoal} onValueChange={setFilterGoal}>
+              <Select value={filterGoal} onValueChange={value => setFilterGoal(value === "all" ? "" : value)}>
                 <SelectTrigger className="bg-gray-700 text-white border-gray-600">
                   <SelectValue placeholder="Todos los objetivos" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Todos los objetivos</SelectItem>
+                  <SelectItem value="all">Todos los objetivos</SelectItem>
                   <SelectItem value="strength">Fuerza</SelectItem>
                   <SelectItem value="hypertrophy">Hipertrofia</SelectItem>
                   <SelectItem value="endurance">Resistencia</SelectItem>
@@ -543,7 +539,13 @@ export default function RoutineManagement() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge variant={routine.isPublished ? "default" : "secondary"}>
+                    <Button type="button" aria-label={`Editar rutina ${routine.name}`} onClick={() => {
+ setEditingRoutine(routine); setPublished(routine.isPublished);
+ setFormData({name: routine.name, description: routine.description || '', goal: routine.goal as 'strength', level: routine.level as 'beginner', dayIndex: routine.dayIndex ?? undefined});
+   setSelectedExercises(routine.items.map(item => ({exerciseId: item.exerciseId ?? item.exercise.id, targetSets: item.targetSets ?? 3, targetRepsMin: item.targetRepsMin ?? 8, targetRepsMax: item.targetRepsMax ?? 12, targetRestSec: item.targetRestSec ?? 60, targetRPE: item.targetRPE ?? undefined, notes: item.notes || '', isOptional: item.isOptional})));
+ setIsCreateDialogOpen(true);
+ }}>Editar</Button>
+<Badge variant={routine.isPublished ? "default" : "secondary"}>
                       {routine.isPublished ? "Publicada" : "Borrador"}
                     </Badge>
                   </TableCell>

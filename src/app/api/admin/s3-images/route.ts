@@ -1,3 +1,4 @@
+import { assertExternalWrites } from "@/server/security/external-writes";
 import { NextRequest, NextResponse } from "next/server";
 import {
   S3Client,
@@ -30,12 +31,15 @@ export async function GET(request: NextRequest) {
       MaxKeys: 1000, // Ajustar según necesidad
     });
 
+    assertExternalWrites();
+
     const response = await s3Client.send(command);
     // Las rutas reales solo se entregan tras verificación reforzada y con URL temporal.
     const images = await Promise.all(
       (response.Contents || []).map(async (object) => {
         const key = object.Key || "";
         const folder = key.includes("/") ? key.split("/")[0] : "root";
+        assertExternalWrites();
         const imageUrl = await getSignedUrl(
           s3Client,
           new GetObjectCommand({
@@ -109,6 +113,8 @@ export async function DELETE(request: NextRequest) {
       Bucket: process.env.AWS_BUCKET_NAME!,
       Key: key,
     });
+
+    assertExternalWrites();
 
     await s3Client.send(command);
 

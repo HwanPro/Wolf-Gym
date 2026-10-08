@@ -50,13 +50,31 @@ jobs:
       - name: Build package
         shell: pwsh
         run: |
-          powershell -NoProfile -ExecutionPolicy Bypass -File setup-launcher\build-package.ps1 -Version $env:WOLFGYM_VERSION -CreateZip
+          powershell -NoProfile -ExecutionPolicy Bypass -File setup-launcher\build-package.ps1 -Version $env:WOLFGYM_VERSION -CreateZip -NoShortcut
+
+      - name: Verify release
+        shell: pwsh
+        run: |
+          npm test
+          if ($LASTEXITCODE -ne 0) { throw "Unit tests failed" }
+          npm audit --omit=dev --audit-level=high
+          if ($LASTEXITCODE -ne 0) { throw "Production dependency audit failed" }
+          powershell -NoProfile -ExecutionPolicy Bypass -File tests\launcher-updater.ps1
+          if ($LASTEXITCODE -ne 0) { throw "Updater tests failed" }
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.WOLFGYM_VERSION }}
           name: WolfGym ${{ env.WOLFGYM_VERSION }}
+          body: |
+            Paquete Windows para la prueba de distribución y actualización del launcher.
+            Descarga el ZIP, extráelo completo y abre WolfGymLauncher.exe. No basta con descargar solo el ejecutable.
+
+            La configuración privada se instala aparte en webapp/.env. Para esta prueba usa únicamente la base de aceptación; no copies credenciales al repositorio.
+            Al iniciar, el launcher consulta la última versión estable, verifica el SHA-256 y conserva la configuración local al actualizar.
+
+            Este release no activa wolf-gym.com, no aplica migraciones ni habilita cobros reales. Consulta docs/windows-release.md para los requisitos de configuración.
           files: |
             dist/WolfGym-${{ env.WOLFGYM_VERSION }}.zip
             dist/WolfGym-${{ env.WOLFGYM_VERSION }}.zip.sha256

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { authOptions } from "@/lib/auth-options";
 import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
@@ -14,7 +14,8 @@ export async function GET(req: NextRequest) {
     }
 
     const { searchParams } = new URL(req.url);
-    const limit = parseInt(searchParams.get("limit") || "3");
+    const limit = Number(searchParams.get("limit") ?? "3");
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) return NextResponse.json({ error: "Límite inválido" }, { status: 400 });
 
     // Obtener entrenamientos recientes completados
     const recentWorkouts = await prisma.workoutSession.findMany({
@@ -132,7 +133,7 @@ export async function GET(req: NextRequest) {
     recentPRs.forEach(set => {
       const exerciseName = set.workoutExercise.exercise.name;
       const oneRepMax = set.weight * (1 + set.reps / 30); // Fórmula de Epley
-      
+
       if (!prsByExercise.has(exerciseName) || oneRepMax > prsByExercise.get(exerciseName).oneRepMax) {
         prsByExercise.set(exerciseName, {
           exerciseName,
@@ -149,7 +150,7 @@ export async function GET(req: NextRequest) {
       id: workout.id,
       date: workout.date,
       routineName: workout.routineTemplate?.name || 'Entrenamiento libre',
-      duration: workout.endTime && workout.startTime ? 
+      duration: workout.endTime && workout.startTime ?
         Math.round((workout.endTime.getTime() - workout.startTime.getTime()) / 1000 / 60) : 0,
       totalVolume: workout.totalVolume,
       totalSets: workout.totalSets,
@@ -165,7 +166,7 @@ export async function GET(req: NextRequest) {
         totalVolume: Math.round((weeklyStats._sum.totalVolume || 0) * 10) / 10,
         totalSets: weeklyStats._sum.totalSets || 0,
         totalReps: weeklyStats._sum.totalReps || 0,
-        avgVolumePerWorkout: weeklyStats._count.id ? 
+        avgVolumePerWorkout: weeklyStats._count.id ?
           Math.round(((weeklyStats._sum.totalVolume || 0) / weeklyStats._count.id) * 10) / 10 : 0
       },
       monthlyKPIs: {
@@ -173,7 +174,7 @@ export async function GET(req: NextRequest) {
         totalVolume: Math.round((monthlyStats._sum.totalVolume || 0) * 10) / 10,
         totalSets: monthlyStats._sum.totalSets || 0,
         totalReps: monthlyStats._sum.totalReps || 0,
-        avgVolumePerWorkout: monthlyStats._count.id ? 
+        avgVolumePerWorkout: monthlyStats._count.id ?
           Math.round(((monthlyStats._sum.totalVolume || 0) / monthlyStats._count.id) * 10) / 10 : 0
       },
       recentPRs: Array.from(prsByExercise.values()).slice(0, 5) // Top 5 PRs

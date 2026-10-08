@@ -1,7 +1,7 @@
 // app/auth/verify-email/verify-email-client.tsx
 "use client";
 
-import { useState, useEffect, useCallback, Suspense } from "react";
+import { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Button } from "@/ui/button";
 import { toast } from "react-toastify";
@@ -15,12 +15,15 @@ function VerifyEmailContent() {
   const [error, setError] = useState("");
 
   const token = searchParams.get("token");
+  const submittedToken = useRef<string | null>(null);
 
   const verifyEmailToken = useCallback(async () => {
     if (!token) {
       setError("Falta el token de verificación.");
       return;
     }
+    if (submittedToken.current === token) return;
+    submittedToken.current = token;
     setIsVerifying(true);
     try {
       const response = await fetch("/api/auth/verify-email", {
@@ -35,7 +38,7 @@ function VerifyEmailContent() {
       if (response.ok) {
         setIsVerified(true);
         if (data?.message) toast.success(data.message);
-        setTimeout(() => router.push("/dashboard"), 3000);
+        setTimeout(() => router.push("/auth/login"), 3000);
       } else {
         setError(data?.error || "Error al verificar el email");
       }
@@ -92,7 +95,7 @@ function VerifyEmailContent() {
                 ha sido actualizado.
               </p>
               <p className="text-sm text-[#6B6B68]">
-                Serás redirigido al dashboard en unos segundos...
+                Serás redirigido al inicio de sesión en unos segundos...
               </p>
             </div>
           )}

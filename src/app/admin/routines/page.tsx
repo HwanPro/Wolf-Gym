@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Dumbbell, Filter, Plus, Search } from "lucide-react";
+import ExerciseManagement from "@/ui/components/admin/ExerciseManagement";
+import RoutineManagement from "@/ui/components/admin/RoutineManagement";
 import { Button } from "@/ui/button";
 
 interface ExerciseItem {
@@ -25,7 +27,7 @@ const W = {
   line: "rgba(255,194,26,0.15)",
   lineStrong: "rgba(255,194,26,0.35)",
   muted: "rgba(255,255,255,0.60)",
-  faint: "rgba(255,255,255,0.40)",
+  faint: "rgba(255,255,255,0.65)",
   font: "'Inter', system-ui, sans-serif",
   display: "'Bebas Neue', 'Arial Narrow', sans-serif",
 };
@@ -37,6 +39,7 @@ function levelColor(level: string) {
 }
 
 export default function AdminRoutinesPage() {
+  const [managing, setManaging] = useState(false);
   const [query, setQuery] = useState("");
   const [muscle, setMuscle] = useState("");
   const [equipment, setEquipment] = useState("");
@@ -95,10 +98,11 @@ export default function AdminRoutinesPage() {
           </h1>
           <div style={{ display: "flex", gap: 10 }}>
             <Button
+              onClick={() => setManaging(current => !current)}
               type="button"
               style={{ height: 40, background: W.yellow, border: `1px solid ${W.yellow}`, borderRadius: 10, color: W.black, fontSize: 13, fontWeight: 700, cursor: "pointer", padding: "0 16px", display: "inline-flex", alignItems: "center", gap: 6 }}
             >
-              <Plus style={{ width: 15, height: 15 }} /> Nuevo ejercicio (próximo)
+              <Plus style={{ width: 15, height: 15 }} /> Gestionar ejercicios y rutinas
             </Button>
             <Link
               href="/admin/dashboard"
@@ -123,6 +127,7 @@ export default function AdminRoutinesPage() {
                 />
                 <button
                   onClick={load}
+                  aria-label="Buscar ejercicios"
                   style={{ width: 40, height: 40, background: "transparent", border: `1px solid ${W.lineStrong}`, borderRadius: 10, color: W.muted, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
                 >
                   <Search style={{ width: 15, height: 15 }} />
@@ -158,6 +163,7 @@ export default function AdminRoutinesPage() {
           </div>
         </div>
 
+        {managing && <section className="space-y-6"><ExerciseManagement /><RoutineManagement /></section>}
         {/* Exercise grid */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 16 }}>
           {loading ? (

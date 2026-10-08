@@ -1,6 +1,7 @@
 import type { JWT } from "next-auth/jwt";
 import { getToken } from "next-auth/jwt";
 import { NextResponse, type NextRequest } from "next/server";
+import { validateSessionToken } from "./session-validity";
 
 export type AppRole = "admin" | "client";
 export type RoleCarrier = { role?: unknown };
@@ -22,7 +23,9 @@ export function safeRedirectForRole(role: unknown) {
 }
 
 export async function requestToken(request: NextRequest) {
-  return getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
+  return validateSessionToken(
+    await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET }),
+  );
 }
 
 export type AuthorizationResult =

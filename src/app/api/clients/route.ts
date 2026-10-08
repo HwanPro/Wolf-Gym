@@ -5,21 +5,16 @@ import { z, ZodError } from "zod";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { parsePhoneNumberFromString } from "libphonenumber-js";
-import { getToken } from "next-auth/jwt";
+import { requestToken } from "@/server/auth/authorization";
+import { datesInOrder, optionalClientDateSchema } from "@/server/validation/client-input";
 
 /* ========= helpers ========= */
 const PlanSchema = z.string().trim().min(1).max(80);
 
 const ProfileSchema = z.object({
   plan: PlanSchema,
-  startDate: z.preprocess(
-    (v) => (v === "" ? null : (v ?? null)),
-    z.string().nullable(),
-  ),
-  endDate: z.preprocess(
-    (v) => (v === "" ? null : (v ?? null)),
-    z.string().nullable(),
-  ),
+  startDate: optionalClientDateSchema,
+  endDate: optionalClientDateSchema,
   emergencyPhone: z.preprocess(
     (v) => (v === "" ? null : (v ?? null)),
     z.string().nullable(),
@@ -28,12 +23,15 @@ const ProfileSchema = z.object({
   social: z.string().default(""),
   documentNumber: z.string().optional().default(""),
   debt: z.number().min(0).default(0),
+}).refine(value => datesInOrder(value.startDate, value.endDate), {
+  message: "La fecha de fin debe ser igual o posterior al inicio",
+  path: ["endDate"],
 });
 
 const BodySchema = z.object({
   username: z.string().min(3, { message: "Usuario requerido" }),
   // puede venir vacío: si no mandas, el backend autogenera
-  password: z.string().optional().default(""),
+  password: z.string().refine(value => !value || (value.length >= 8 && Buffer.byteLength(value, "utf8") <= 72), "La contraseña debe tener al menos 8 caracteres y máximo 72 bytes").optional().default(""),
   phoneNumber: z.string().min(6, { message: "Teléfono inválido" }),
   firstName: z.string().min(1, { message: "Nombre requerido" }),
   lastName: z.string().min(1, { message: "Apellido requerido" }),
@@ -42,12 +40,12 @@ const BodySchema = z.object({
 
 /* ========= GET ========= */
 export async function GET(request: NextRequest) {
-  const token = await getToken({
-    req: request,
-    secret: process.env.NEXTAUTH_SECRET,
-  });
-  if (!token || token.role !== "admin") {
+  const token = await requestToken(request);
+  if (!token) {
     return NextResponse.json({ message: "No autorizado" }, { status: 401 });
+  }
+  if (token.role !== "admin") {
+    return NextResponse.json({ message: "No autorizado" }, { status: 403 });
   }
 
   try {
@@ -94,12 +92,12 @@ export async function GET(request: NextRequest) {
 
 /* ========= POST ========= */
 export async function POST(request: NextRequest) {
-  const token = await getToken({
-    req: request,
-    secret: process.env.NEXTAUTH_SECRET,
-  });
-  if (!token || token.role !== "admin") {
+  const token = await requestToken(request);
+  if (!token) {
     return NextResponse.json({ message: "No autorizado" }, { status: 401 });
+  }
+  if (token.role !== "admin") {
+    return NextResponse.json({ message: "No autorizado" }, { status: 403 });
   }
 
   try {
@@ -139,10 +137,7 @@ export async function POST(request: NextRequest) {
           debt: Number(raw?.debt ?? 0),
         };
 
-    const plan =
-      typeof baseProfile.plan === "string" && baseProfile.plan.trim()
-        ? baseProfile.plan.trim()
-        : "Plan Mes";
+    const plan = baseProfile.plan ?? "Plan Mes";
 
     const body = BodySchema.parse({
       username,
@@ -221,12 +216,12 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
 
-    // Password: usa la enviada si viene y es >= 6; si no, genera una
+    // Usa la contraseña validada o genera una con aleatoriedad criptográfica.
     const finalRawPassword =
-      body.password && body.password.length >= 6
+      body.password
         ? body.password
         : crypto.randomBytes(6).toString("hex");
-    const hashed = await bcrypt.hash(finalRawPassword, 10);
+    const hashed = await bcrypt.hash(finalRawPassword, 12);
 
     // Transacción
     const result = await prisma.$transaction(async (tx) => {
@@ -272,7 +267,7 @@ export async function POST(request: NextRequest) {
         userId: result.user.id,
         profileId: result.profile.profile_id,
       },
-      { status: 201 },
+      { status: 201, headers: { "Cache-Control": "no-store" } },
     );
   } catch (err: unknown) {
     if (err instanceof ZodError) {
@@ -288,7 +283,9 @@ export async function POST(request: NextRequest) {
       const t = Array.isArray(target)
         ? target.map(String).join(",")
         : String(target || "");
-      const msg = t.includes("username")
+      const msg = t.includes("document")
+        ? "El DNI ya está registrado"
+        : t.includes("username")
         ? "El usuario ya está registrado"
         : t.includes("phoneNumber")
           ? "El teléfono ya está registrado"

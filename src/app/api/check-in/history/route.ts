@@ -1,25 +1,30 @@
+import { requireAdmin } from "@/server/auth/authorization";
 // src/app/api/check-in/history/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/infrastructure/prisma/prisma";
 import { autoCloseExpiredAttendances } from "@/lib/attendanceAutoClose";
+import { getLimaDayRange, getMembershipStatus } from "@/domain/attendance/attendance-policy";
 
 export const dynamic = "force-dynamic";
 
 // Obtener historial de actividad reciente
 export async function GET(request: NextRequest) {
+  const authorization = await requireAdmin(request);
+  if (!authorization.authorized) return authorization.response;
+
   try {
     await autoCloseExpiredAttendances();
 
     const { searchParams } = new URL(request.url);
     const room = searchParams.get("room") || "default";
-    const limit = parseInt(searchParams.get("limit") || "50");
+    const limit = Number(searchParams.get("limit") ?? "50");
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+      return NextResponse.json({ error: "El límite debe estar entre 1 y 100" }, { status: 400 });
+    }
 
     // Obtener registros de asistencia del día actual
     const today = new Date();
-    const startOfDay = new Date(today);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(today);
-    endOfDay.setHours(23, 59, 59, 999);
+    const { start: startOfDay, end: endOfDay } = getLimaDayRange(today);
 
     const attendanceRecords = await prisma.attendance.findMany({
       where: {
@@ -62,14 +67,14 @@ export async function GET(request: NextRequest) {
         },
       });
 
-      const fullName = 
+      const fullName =
         `${profile?.profile_first_name ?? ""} ${profile?.profile_last_name ?? ""}`.trim() ||
         `${record.user?.firstName ?? ""} ${record.user?.lastName ?? ""}`.trim() ||
         record.user?.username ||
         "Usuario";
 
       const monthlyDebt = profile?.debt ? Number(profile.debt) : 0;
-      
+
       // Obtener deudas diarias
       let dailyDebt = 0;
       if (profile?.profile_id) {
@@ -83,9 +88,7 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      const daysLeft = profile?.profile_end_date 
-        ? Math.max(0, Math.ceil((profile.profile_end_date.getTime() - today.getTime()) / (24 * 60 * 60 * 1000)))
-        : undefined;
+      const daysLeft = getMembershipStatus(profile?.profile_end_date, today).daysLeft;
 
       // Agregar entrada si existe
       if (record.checkInTime) {

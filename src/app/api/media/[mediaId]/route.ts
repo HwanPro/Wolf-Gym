@@ -1,23 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/app/api/auth/[...nextauth]/route";
-import { PrismaClient } from "@prisma/client";
+import { authOptions } from "@/lib/auth-options";
+import prisma from "@/infrastructure/prisma/prisma";
 import { z } from "zod";
 
-const prisma = new PrismaClient();
 
 // Esquema de validación para actualizar media
 const updateMediaSchema = z.object({
   title: z.string().optional(),
   description: z.string().optional(),
-  order: z.number().min(0).optional(),
+  order: z.number().int().min(0).optional(),
   isCover: z.boolean().optional()
 });
 
 // PUT - Actualizar media (reordenar, marcar cover, etc.)
 export async function PUT(
   req: NextRequest,
-  { params }: { params: { mediaId: string } }
+  { params }: { params: Promise<{ mediaId: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -30,7 +29,7 @@ export async function PUT(
 
     // Verificar que el media existe
     const existingMedia = await prisma.exerciseMedia.findUnique({
-      where: { id: params.mediaId }
+      where: { id: (await params).mediaId }
     });
 
     if (!existingMedia) {
@@ -40,22 +39,10 @@ export async function PUT(
       );
     }
 
-    // Si se marca como cover, desmarcar otros covers del mismo ejercicio
-    if (data.isCover) {
-      await prisma.exerciseMedia.updateMany({
-        where: { 
-          exerciseId: existingMedia.exerciseId,
-          isCover: true,
-          id: { not: params.mediaId }
-        },
-        data: { isCover: false }
-      });
-    }
-
-    // Actualizar media
-    await prisma.exerciseMedia.update({
-      where: { id: params.mediaId },
-      data
+    await prisma.$transaction(async tx=>{
+      await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${"exercise-media:"+existingMedia.exerciseId}))`;
+      if(data.isCover)await tx.exerciseMedia.updateMany({where:{exerciseId:existingMedia.exerciseId,isCover:true,id:{not:existingMedia.id}},data:{isCover:false}});
+      await tx.exerciseMedia.update({where:{id:existingMedia.id},data});
     });
 
     return NextResponse.json({ ok: true });
@@ -79,7 +66,7 @@ export async function PUT(
 // DELETE - Eliminar media
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: { mediaId: string } }
+  { params }: { params: Promise<{ mediaId: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -89,7 +76,7 @@ export async function DELETE(
 
     // Verificar que el media existe
     const existingMedia = await prisma.exerciseMedia.findUnique({
-      where: { id: params.mediaId }
+      where: { id: (await params).mediaId }
     });
 
     if (!existingMedia) {
@@ -99,15 +86,21 @@ export async function DELETE(
       );
     }
 
-    // Eliminar media
-    await prisma.exerciseMedia.delete({
-      where: { id: params.mediaId }
+    await prisma.$transaction(async tx=>{
+      await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${"exercise-media:"+existingMedia.exerciseId}))`;
+      const current=await tx.exerciseMedia.findUnique({where:{id:existingMedia.id}});
+      if(!current)return;
+      await tx.exerciseMedia.delete({where:{id:existingMedia.id}});
+      if(current.isCover){
+        const replacement=await tx.exerciseMedia.findFirst({where:{exerciseId:current.exerciseId},orderBy:[{order:"asc"},{createdAt:"asc"}]});
+        if(replacement)await tx.exerciseMedia.update({where:{id:replacement.id},data:{isCover:true}});
+      }
     });
 
     // TODO: Aquí se podría agregar lógica para eliminar el archivo de S3
     // si es necesario, aunque generalmente se mantienen por seguridad
 
-    return NextResponse.json(null, { status: 204 });
+    return new NextResponse(null, { status: 204 });
 
   } catch (error) {
     console.error("Error al eliminar media:", error);

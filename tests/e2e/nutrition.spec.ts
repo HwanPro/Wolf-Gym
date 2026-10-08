@@ -4,12 +4,18 @@ import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { encode } from "next-auth/jwt";
 
 async function authenticate(context: BrowserContext, role: "admin" | "client") {
+  await context.route("**/api/admin/nutrition/assignments", route => route.request().method() === "GET" ? route.fulfill({json: {items: []}}) : route.continue());
   const secret = process.env.NEXTAUTH_SECRET;
   if (!secret) throw new Error("NEXTAUTH_SECRET is required for authenticated E2E tests");
   const value = await encode({
     secret,
     token: { id: `${role}-nutrition-e2e`, sub: `${role}-nutrition-e2e`, role },
   });
+  // UI fixtures isolate presentation; they do not exercise server authorization.
+  await context.route("**/api/auth/session", route => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({ expires: "2099-01-01T00:00:00.000Z", user: { id: `${role}-nutrition-e2e`, role: role, name: "usuario_e2e", firstName: "Cliente", lastName: "Prueba" } }),
+  }));
   await context.addCookies([
     {
       name: "next-auth.session-token",

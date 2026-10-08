@@ -8,6 +8,7 @@ type WindowState = { count: number; expiresAt: number };
 
 export class InMemoryRateLimitStore {
   private readonly windows = new Map<string, WindowState>();
+  constructor(private readonly maxKeys = 10_000) {}
 
   consume(
     key: string,
@@ -15,6 +16,12 @@ export class InMemoryRateLimitStore {
     windowMs: number,
     now = Date.now(),
   ): RateLimitResult {
+    if (!this.windows.has(key) && this.windows.size >= this.maxKeys) {
+      this.removeExpired(now);
+      if (this.windows.size >= this.maxKeys) {
+        return { allowed: false, remaining: 0, retryAfterSeconds: 60 };
+      }
+    }
     const current = this.windows.get(key);
     const state =
       !current || current.expiresAt <= now
@@ -34,7 +41,6 @@ export class InMemoryRateLimitStore {
 
     state.count += 1;
     this.windows.set(key, state);
-    if (this.windows.size > 10_000) this.removeExpired(now);
 
     return {
       allowed: true,
@@ -54,4 +60,3 @@ export class InMemoryRateLimitStore {
   }
 }
 
-export const loginRateLimit = new InMemoryRateLimitStore();

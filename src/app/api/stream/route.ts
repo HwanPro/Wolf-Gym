@@ -1,10 +1,16 @@
+import { requireAdmin } from "@/server/auth/authorization";
 import { NextRequest } from "next/server";
 import { rt, RTEvent } from "@/lib/realtime";
+import { validateSessionToken } from "@/server/auth/session-validity";
 
 export const runtime = "nodejs"; // importante para mantener la conexión
 
 export async function GET(req: NextRequest) {
+  const authorization = await requireAdmin(req);
+  if (!authorization.authorized) return authorization.response;
+
   const encoder = new TextEncoder();
+  let cleanup = () => {};
 
   const stream = new ReadableStream({
     start(controller) {
@@ -19,15 +25,30 @@ export async function GET(req: NextRequest) {
       const listener = (evt: RTEvent) => send(evt);
       rt.on("realtime", listener);
 
-      req.signal.addEventListener("abort", () => {
+      cleanup = () => {
         clearInterval(keepAlive);
         rt.off("realtime", listener);
-        controller.close();
-      });
+        req.signal.removeEventListener("abort", cleanup);
+      };
+      req.signal.addEventListener("abort", cleanup);
+    },
+    cancel() {
+      cleanup();
     },
   });
 
-  return new Response(stream, {
+  const protectedStream = stream.pipeThrough(
+    new TransformStream({
+      async transform(chunk, controller) {
+        if (!(await validateSessionToken(authorization.token))) {
+          controller.terminate();
+          return;
+        }
+        controller.enqueue(chunk);
+      },
+    }),
+  );
+  return new Response(protectedStream, {
     headers: {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",

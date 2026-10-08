@@ -11,6 +11,7 @@ import {
 } from "./authorization";
 
 vi.mock("next-auth/jwt", () => ({ getToken: vi.fn() }));
+vi.mock("./session-validity", () => ({ validateSessionToken: vi.fn((token) => token) }));
 
 const mockedGetToken = vi.mocked(getToken);
 

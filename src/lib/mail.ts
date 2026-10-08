@@ -1,4 +1,6 @@
 import nodemailer from "nodemailer";
+import { saveLocalMail } from "@/server/security/local-mail";
+import { assertExternalWrites } from "@/server/security/external-writes";
 
 type MailConfig = {
   host: string;
@@ -38,6 +40,10 @@ function getTransporter() {
     host: config.host,
     port: config.port,
     secure: config.secure,
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 15000,
+    dnsTimeout: 10000,
     auth: {
       user: config.user,
       pass: config.pass,
@@ -46,6 +52,8 @@ function getTransporter() {
 }
 
 export async function sendEmail(to: string, subject: string, html: string) {
+  if (await saveLocalMail({ to, subject, html })) return;
+  assertExternalWrites();
   const config = getMailConfig();
   const transporter = getTransporter();
 

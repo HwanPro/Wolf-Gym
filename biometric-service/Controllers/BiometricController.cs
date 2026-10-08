@@ -25,9 +25,18 @@ public class BiometricController : ControllerBase
     }
 
     [HttpGet("health")]
-    public IActionResult Health()
+    public async Task<IActionResult> Health(CancellationToken cancellationToken)
     {
-        return Ok(new HealthResponse(true));
+        try
+        {
+            await _repository.CheckReadyAsync(cancellationToken);
+            return Ok(new HealthResponse(true));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Biometric database readiness failed");
+            return StatusCode(503, new { ok = false, status = "database-unavailable" });
+        }
     }
 
     [HttpPost("device/open")]
@@ -91,17 +100,16 @@ public class BiometricController : ControllerBase
     }
 
     [HttpPost("capture")]
-    public async Task<IActionResult> Capture()
+    public async Task<IActionResult> Capture(CancellationToken cancellationToken)
     {
         try
         {
-            var (success, template, templateLen, image, error) = await _fingerService.CaptureFingerprint();
+            var (success, template, templateLen, image, error) = await _fingerService.CaptureFingerprint(cancellationToken);
             
             if (!success)
             {
-                // Cerrar el dispositivo si hay error
-                _fingerService.CloseDevice();
-                return Ok(new CaptureResponse(false, null, null, 0, 0, error));
+                return Ok(new CaptureResponse(false, null, null, 0, 0, error,
+                    error == "No finger detected (timeout)" ? "NO_FINGER" : "CAPTURE_FAILED"));
             }
 
             var templateB64 = template != null && templateLen > 0
@@ -109,9 +117,6 @@ public class BiometricController : ControllerBase
                 : null;
 
             var imageB64 = _fingerService.GetLastCapturedImageBase64();
-
-            // Cerrar el dispositivo después de la captura exitosa
-            _fingerService.CloseDevice();
 
             return Ok(new CaptureResponse(
                 true,
@@ -122,11 +127,13 @@ public class BiometricController : ControllerBase
                 null
             ));
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return StatusCode(499);
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error capturing fingerprint");
-            // Cerrar el dispositivo si hay excepción
-            _fingerService.CloseDevice();
             return Ok(new CaptureResponse(false, null, null, 0, 0, ex.Message));
         }
     }
@@ -153,7 +160,17 @@ public class BiometricController : ControllerBase
             }
 
             // Convertir muestras de base64 a byte arrays
-            var samples = request.SamplesB64.Select(s => Convert.FromBase64String(s)).ToList();
+            List<byte[]> samples;
+            try
+            {
+                samples = request.SamplesB64.Select(s => Convert.FromBase64String(s)).ToList();
+            }
+            catch (FormatException)
+            {
+                return BadRequest(new EnrollResponse(false, "Invalid fingerprint sample", 0));
+            }
+            if (samples.Any(sample => sample.Length == 0 || sample.Length > 2048))
+                return BadRequest(new EnrollResponse(false, "Invalid fingerprint sample size", 0));
 
             byte[] templateToSave;
             int templateLen;
@@ -187,9 +204,9 @@ public class BiometricController : ControllerBase
                         _logger.LogWarning(
                             "Enrollment validation failed: Samples {i} and {j} don't match (score={Score})",
                             i + 1, i + 2, score);
-                        return Ok(new EnrollResponse(
+                        return BadRequest(new EnrollResponse(
                             false,
-                            $"Please press the same finger 3 times for the enrollment",
+                            "SAMPLES_DO_NOT_MATCH",
                             0
                         ));
                     }
@@ -220,20 +237,33 @@ public class BiometricController : ControllerBase
                 TemplateSize = templateLen
             };
 
-            bool saved;
+            FingerprintSaveResult saved;
             try
             {
-                saved = await _repository.SaveFingerprintAsync(fingerprintRecord);
+                saved = await _repository.SaveFingerprintAsync(fingerprintRecord, stored =>
+                {
+                    // Test the merged template and each original sample against other owners.
+                    foreach (var candidate in samples.Append(templateToSave))
+                    {
+                        var comparison = _fingerService.VerifyTemplate(candidate, stored);
+                        if (!comparison.success) throw new InvalidOperationException("Fingerprint comparison unavailable");
+                        if (comparison.match) return true;
+                    }
+                    return false;
+                });
             }
             catch (Exception dbEx)
             {
                 _logger.LogError(dbEx, "Database error saving fingerprint");
-                return Ok(new EnrollResponse(false, $"Database error: {dbEx.Message}", 0));
+                return StatusCode(503, new EnrollResponse(false, "Biometric storage or comparison unavailable", 0));
             }
             
-            if (!saved)
+            if (saved == FingerprintSaveResult.Duplicate)
+                return Conflict(new EnrollResponse(false, "FINGERPRINT_ALREADY_REGISTERED", 0));
+
+            if (saved != FingerprintSaveResult.Saved)
             {
-                return Ok(new EnrollResponse(false, "User not found or database error", 0));
+                return NotFound(new EnrollResponse(false, "User not found", 0));
             }
 
             _logger.LogInformation(
@@ -422,6 +452,8 @@ public class BiometricController : ControllerBase
     [HttpPost("config")]
     public IActionResult UpdateConfig([FromBody] ConfigUpdateRequest request)
     {
+        if (request.Threshold is < 1 or > 100 || request.Timeout is < 1000 or > 30000)
+            return BadRequest(new { ok = false, message = "Invalid threshold or timeout" });
         if (request.Threshold.HasValue)
         {
             _fingerService.Threshold = request.Threshold.Value;

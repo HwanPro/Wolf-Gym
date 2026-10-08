@@ -6,6 +6,9 @@ import { requireAdmin } from "@/server/auth/authorization";
 export async function POST(request: NextRequest) {
   const authorization = await requireAdmin(request);
   if (!authorization.authorized) return authorization.response;
+  if (process.env.NODE_ENV === "production") {
+    return NextResponse.json({ error: "No disponible" }, { status: 404 });
+  }
 
   try {
     const { userId } = await request.json();

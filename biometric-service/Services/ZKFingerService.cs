@@ -30,9 +30,14 @@ public class ZKFingerService : IDisposable
     public int FpWidth => _fpWidth;
     public int FpHeight => _fpHeight;
 
-    public ZKFingerService(ILogger<ZKFingerService> logger)
+    public ZKFingerService(ILogger<ZKFingerService> logger, IConfiguration configuration)
     {
         _logger = logger;
+        Threshold = configuration.GetValue("BiometricService:Threshold", 30);
+        CaptureTimeout = configuration.GetValue("BiometricService:CaptureTimeout", 15000);
+        MergeSamples = configuration.GetValue("BiometricService:MergeSamples", true);
+        if (Threshold < 1 || Threshold > 100 || CaptureTimeout < 1000 || CaptureTimeout > 30000)
+            throw new InvalidOperationException("Invalid biometric threshold or capture timeout configuration");
     }
 
     // ---------- Helpers de aseguramiento ----------
@@ -171,7 +176,7 @@ public class ZKFingerService : IDisposable
     }
 
     /// <summary>Cierra DB y dispositivo.</summary>
-    public (bool success, string? error) CloseDevice()
+    public (bool success, string? error) CloseDevice(bool terminateSdk = false)
     {
         try
         {
@@ -184,6 +189,15 @@ public class ZKFingerService : IDisposable
             {
                 zkfp2.CloseDevice(_deviceHandle);
                 _deviceHandle = IntPtr.Zero;
+            }
+            if (terminateSdk && _isInitialized)
+            {
+                var result = zkfp2.Terminate();
+                _isInitialized = false;
+                if (result != zkfperrdef.ZKFP_ERR_OK)
+                    _logger.LogWarning("SDK termination returned {Code}", result);
+                else
+                    _logger.LogInformation("SDK capture session terminated");
             }
             _logger.LogInformation("Device closed successfully");
             return (true, null);
@@ -198,16 +212,15 @@ public class ZKFingerService : IDisposable
     // ---------- Captura ----------
 
     /// <summary>Captura huella con timeout. Devuelve plantilla exacta (solo tempLen bytes) e imagen raw.</summary>
-    public async Task<(bool success, byte[]? template, int templateLen, byte[]? image, string? error)> CaptureFingerprint()
+    public async Task<(bool success, byte[]? template, int templateLen, byte[]? image, string? error)> CaptureFingerprint(CancellationToken cancellationToken = default)
     {
-        // Asegurar dispositivo abierto (opcional, por si el cliente se olvidó)
-        var okOpen = EnsureOpenWithDb();
-        if (!okOpen.success)
-            return (false, null, 0, null, okOpen.error);
-
-        await _captureLock.WaitAsync();
+        await _captureLock.WaitAsync(cancellationToken);
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
+            var okOpen = EnsureOpenWithDb();
+            if (!okOpen.success)
+                return (false, null, 0, null, okOpen.error);
             int imageSize = _fpWidth * _fpHeight;
             byte[] fpImage = new byte[imageSize];
             byte[] fpTemplate = new byte[2048];
@@ -219,6 +232,7 @@ public class ZKFingerService : IDisposable
 
             while (DateTime.Now - startTime < timeout)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 tempLen = 2048; // reset en cada intento
                 var ret = zkfp2.AcquireFingerprint(_deviceHandle, fpImage, imageSize, fpTemplate, ref tempLen);
 
@@ -238,15 +252,19 @@ public class ZKFingerService : IDisposable
 
                 lastErrorCode = ret;
 
-                if (ret == zkfperrdef.ZKFP_ERR_BUSY || ret == -10) // ocupado/no finger
+                if (ret == zkfperrdef.ZKFP_ERR_BUSY ||
+                    ret == zkfperrdef.ZKFP_ERR_CAPTURE ||
+                    ret == zkfperrdef.ZKFP_ERR_SUSPENDED)
                 {
-                    await Task.Delay(120);
+                    await Task.Delay(120, cancellationToken);
                     continue;
                 }
                 break; // otros errores => salir
             }
 
-            var errorMessage = lastErrorCode switch
+            var errorMessage = DateTime.Now - startTime >= timeout
+                ? "No finger detected (timeout)"
+                : lastErrorCode switch
             {
                 zkfperrdef.ZKFP_ERR_BUSY => "Device busy",
                 -10 => "No finger detected (timeout)",
@@ -258,6 +276,10 @@ public class ZKFingerService : IDisposable
             _logger.LogWarning("Fingerprint capture failed/timeout. Last error: {Code}", lastErrorCode);
             return (false, null, 0, null, errorMessage);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error capturing fingerprint");
@@ -265,6 +287,9 @@ public class ZKFingerService : IDisposable
         }
         finally
         {
+            // Only the capture holding the lock may close the reader. A queued
+            // request that is cancelled must not interrupt another capture.
+            CloseDevice(terminateSdk: true);
             _captureLock.Release();
         }
     }
@@ -331,6 +356,7 @@ public class ZKFingerService : IDisposable
             _logger.LogDebug("DBMatch: captured len={Len1}, stored len={Len2}", len1, len2);
 
             int score = zkfp2.DBMatch(_dbHandle, capturedTemplate, len1, storedTemplate, len2);
+            if (score < 0) return (false, false, 0, "Fingerprint comparison failed");
             bool match = applyThreshold ? (score >= Threshold) : (score > 0);
 
             _logger.LogDebug("DBMatch score: {Score}, Threshold: {Threshold}, applyThreshold: {Apply} => Match: {Match}",
@@ -363,6 +389,7 @@ public class ZKFingerService : IDisposable
             for (int i = 0; i < storedTemplates.Count; i++)
             {
                 int score = zkfp2.DBMatch(_dbHandle, capturedTemplate, capturedTemplate.Length, storedTemplates[i], storedTemplates[i].Length);
+                if (score < 0) return (false, false, -1, 0, "Fingerprint comparison failed");
                 if (score > bestScore)
                 {
                     secondBest = bestScore;

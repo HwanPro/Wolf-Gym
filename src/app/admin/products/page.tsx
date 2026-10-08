@@ -20,9 +20,12 @@ type Product = {
   discount: number;
   stock: number;
   imageUrl: string;
+  category?: string;
+  sku?: string | null;
+  trackStock?: boolean;
+  updatedAt?: string;
 };
 
-type NewProduct = Omit<Product, "id">;
 const DEFAULT_PRODUCT_IMAGE = "/uploads/images/logo2.jpg";
 
 const W = {
@@ -36,7 +39,7 @@ const W = {
   line: "rgba(255,194,26,0.15)",
   lineStrong: "rgba(255,194,26,0.35)",
   muted: "rgba(255,255,255,0.60)",
-  faint: "rgba(255,255,255,0.40)",
+  faint: "rgba(255,255,255,0.65)",
   font: "'Inter', system-ui, sans-serif",
   display: "'Bebas Neue', 'Arial Narrow', sans-serif",
 };
@@ -68,6 +71,10 @@ export default function ProductList() {
             item_discount?: number;
             item_stock: number;
             item_image_url?: string;
+            item_category?: string;
+            item_sku?: string | null;
+            track_stock?: boolean;
+            item_updated_at?: string;
           }) => ({
             id: product.item_id,
             name: product.item_name,
@@ -76,6 +83,10 @@ export default function ProductList() {
             discount: product.item_discount || 0,
             stock: product.item_stock,
             imageUrl: product.item_image_url || DEFAULT_PRODUCT_IMAGE,
+            category: product.item_category,
+            sku: product.item_sku,
+            trackStock: product.track_stock,
+            updatedAt: product.item_updated_at,
           }),
         ),
       );
@@ -94,20 +105,7 @@ export default function ProductList() {
     fetchProducts();
   }, []);
 
-  const handleAddSave = async (newProduct: NewProduct) => {
-    const response = await fetch("/api/products", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        item_name: newProduct.name,
-        item_description: newProduct.description,
-        item_price: newProduct.price,
-        item_discount: newProduct.discount || 0,
-        item_stock: newProduct.stock,
-        item_image_url: newProduct.imageUrl,
-      }),
-    });
-    if (!response.ok) throw new Error("Error al agregar el producto");
+  const handleAddSave = async () => {
     try {
       toast.success("Producto agregado con éxito", {
         position: "top-right",
@@ -123,21 +121,36 @@ export default function ProductList() {
     }
   };
 
-  const handleEditSave = async (updatedProduct: Product) => {
+  const handleEditSave = async (updatedProduct: Product, imageFile?: File) => {
     setActionLoading(updatedProduct.id);
     try {
-      const response = await fetch(`/api/products/${updatedProduct.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const fields = {
           item_name: updatedProduct.name,
           item_description: updatedProduct.description,
           item_price: updatedProduct.price,
           item_discount: updatedProduct.discount || 0,
           item_stock: updatedProduct.stock,
-        }),
+          item_category: updatedProduct.category,
+          item_sku: updatedProduct.sku,
+          track_stock: updatedProduct.trackStock,
+          expectedUpdatedAt: updatedProduct.updatedAt,
+        };
+      const multipart = imageFile ? new FormData() : null;
+      if (multipart) {
+        for (const [key, value] of Object.entries(fields)) {
+          if (value !== undefined) multipart.set(key, value === null ? "" : String(value));
+        }
+        multipart.set("file", imageFile!);
+      }
+      const response = await fetch(`/api/products/${updatedProduct.id}`, {
+        method: "PUT",
+        ...(multipart ? {} : {headers: { "Content-Type": "application/json" }}),
+        body: multipart ?? JSON.stringify(fields),
       });
-      if (!response.ok) throw new Error("Error al actualizar el producto");
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error || "Error al actualizar el producto");
+      }
       toast.success("Producto actualizado con éxito", {
         position: "top-right",
         style: { backgroundColor: "#00C853", color: "#FFF" },
@@ -150,6 +163,7 @@ export default function ProductList() {
         position: "top-center",
         style: { backgroundColor: "#FF0000", color: "#FFF" },
       });
+      throw error;
     } finally {
       setActionLoading(null);
     }
@@ -454,7 +468,7 @@ export default function ProductList() {
                   </span>
                 </div>
                 <div style={{ display: "flex", gap: 8, width: "100%" }}>
-                  <Dialog>
+                  <Dialog open={selectedProduct?.id === product.id} onOpenChange={open => setSelectedProduct(open ? product : null)}>
                     <DialogTrigger asChild>
                       <Button
                         onClick={() => setSelectedProduct(product)}
@@ -500,7 +514,7 @@ export default function ProductList() {
                           : W.danger,
                       border: `1px solid ${W.danger}`,
                       borderRadius: 8,
-                      color: "#fff",
+                      color: W.black,
                       fontSize: 12,
                       fontWeight: 700,
                       cursor:

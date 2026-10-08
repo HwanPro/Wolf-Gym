@@ -5,10 +5,11 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 
 import prisma from "@/infrastructure/prisma/prisma";
+import { clientPhoneAliases, clientPhoneSchema } from "@/server/validation/client-input";
 
 const registerSchema = z.object({
-  firstname: z.string().trim().min(1, "El nombre es obligatorio"),
-  lastname: z.string().trim().min(1, "El apellido es obligatorio"),
+  firstname: z.string().trim().min(1, "El nombre es obligatorio").max(120),
+  lastname: z.string().trim().min(1, "El apellido es obligatorio").max(120),
   username: z
     .string()
     .trim()
@@ -24,18 +25,15 @@ const registerSchema = z.object({
     .email("Ingresa un email válido")
     .optional()
     .or(z.literal("")),
-  phone: z.string().trim().min(6, "El teléfono es obligatorio"),
-  emergencyPhone: z.string().trim().optional().or(z.literal("")),
-  password: z.string().min(8, "La contraseña debe tener al menos 8 caracteres"),
+  phone: clientPhoneSchema,
+  emergencyPhone: z.union([z.literal(""), clientPhoneSchema]).optional(),
+  password: z.string().min(8, "La contraseña debe tener al menos 8 caracteres")
+    .refine(value => Buffer.byteLength(value, "utf8") <= 72, "La contraseña no debe superar 72 bytes"),
 });
 
 function normalizeEmail(email?: string) {
   const value = email?.trim().toLowerCase();
   return value || null;
-}
-
-function normalizePhone(phone: string) {
-  return phone.replace(/\s+/g, "");
 }
 
 function badRequest(message: string) {
@@ -53,10 +51,8 @@ export async function POST(req: Request) {
     const firstname = parsed.data.firstname;
     const lastname = parsed.data.lastname;
     const username = parsed.data.username;
-    const phone = normalizePhone(parsed.data.phone);
-    const emergencyPhone = parsed.data.emergencyPhone
-      ? normalizePhone(parsed.data.emergencyPhone)
-      : null;
+    const phone = parsed.data.phone;
+    const emergencyPhone = parsed.data.emergencyPhone || null;
     const email = normalizeEmail(parsed.data.email);
 
     const [existingUser, existingPhone, existingEmail] = await Promise.all([
@@ -64,8 +60,8 @@ export async function POST(req: Request) {
         where: { username: { equals: username, mode: "insensitive" } },
         select: { id: true },
       }),
-      prisma.user.findUnique({
-        where: { phoneNumber: phone },
+      prisma.user.findFirst({
+        where: { phoneNumber: { in: clientPhoneAliases(phone) } },
         select: { id: true },
       }),
       email
@@ -89,9 +85,18 @@ export async function POST(req: Request) {
       if (emailAsUsername) return badRequest("El email ya está registrado");
     }
 
-    const hashedPassword = await bcrypt.hash(parsed.data.password, 10);
+    const hashedPassword = await bcrypt.hash(parsed.data.password, 12);
 
     const user = await prisma.$transaction(async (tx) => {
+      const identityKeys = [`username:${username.toLowerCase()}`, `phone:${phone}`, ...(email ? [`email:${email}`] : [])].sort();
+      for (const key of identityKeys) {
+        await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${"registration:" + key}))`;
+      }
+      const [identity, emailIdentity] = await Promise.all([
+        tx.user.findFirst({where:{OR:[{username:{equals:username,mode:"insensitive"}},{phoneNumber:{in:clientPhoneAliases(phone)}},...(email ? [{username:{equals:email,mode:"insensitive" as const}}] : [])]},select:{id:true}}),
+        email ? tx.emailVerification.findFirst({where:{email:{equals:email,mode:"insensitive"}},select:{userId:true}}) : null,
+      ]);
+      if (identity || emailIdentity) throw new Error("identity_conflict");
       const createdUser = await tx.user.create({
         data: {
           firstName: firstname,
@@ -139,6 +144,7 @@ export async function POST(req: Request) {
       { status: 201 },
     );
   } catch (error: unknown) {
+    if (error instanceof Error && error.message === "identity_conflict") return badRequest("Ya existe una cuenta con esos datos");
     console.error("ERROR EN REGISTRO:", error);
 
     if ((error as { code?: string }).code === "P2002") {

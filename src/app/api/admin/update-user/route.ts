@@ -2,18 +2,19 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/infrastructure/prisma/prisma";
-import { getToken } from "next-auth/jwt";
+import { requestToken } from "@/server/auth/authorization";
+import { canUseEmailUsername } from "@/server/auth/email-ownership";
 
 export async function PATCH(request: NextRequest) {
   try {
     // Obtenemos el token de la sesión y verificamos que sea un admin
-    const token = await getToken({
-      req: request,
-      secret: process.env.NEXTAUTH_SECRET,
-    });
-    if (!token || token.role !== "admin") {
-      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-    }
+    const token = await requestToken(request);
+    if (!token) {
+    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  }
+  if (token.role !== "admin") {
+    return NextResponse.json({ error: "No autorizado" }, { status: 403 });
+  }
 
     // Parsear el body y extraer los campos necesarios
     const { userId, username, firstName, lastName, phone, emergencyPhone } =
@@ -28,8 +29,13 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
+    if (typeof username !== "string" || !(await canUseEmailUsername(userId, username))) {
+      return NextResponse.json({ error: "Verifica el correo antes de usarlo como usuario" }, { status: 403 });
+    }
+
     // Actualizar el usuario en la tabla User
     const updatedUser = await prisma.user.update({
+        select: { id: true, username: true, firstName: true, lastName: true, phoneNumber: true, image: true, role: true },
       where: { id: userId },
       data: {
         username,

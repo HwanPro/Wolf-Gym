@@ -1,70 +1,129 @@
+import { randomBytes, randomInt } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
-import crypto from "crypto";
 import nodemailer from "nodemailer";
+import { saveLocalMail } from "@/server/security/local-mail";
+import { assertExternalWrites } from "@/server/security/external-writes";
+import { z } from "zod";
 
-const prisma = new PrismaClient();
+import prisma from "@/infrastructure/prisma/prisma";
+import { authorizeRequest } from "@/server/auth/authorization";
+import { PersistentRateLimitStore } from "@/server/security/persistent-rate-limit";
+import { getAppBaseUrl } from "@/lib/mail";
 
-// Email transporter configuration
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || process.env.EMAIL_HOST || "smtp.gmail.com",
-  port: parseInt(process.env.SMTP_PORT || process.env.EMAIL_PORT || "587"),
-  secure: parseInt(process.env.SMTP_PORT || process.env.EMAIL_PORT || "587") === 465,
-  auth: {
-    user: process.env.SMTP_USER || process.env.EMAIL_USER,
-    pass: process.env.SMTP_PASS || process.env.EMAIL_PASS,
-  },
+const attempts = new PersistentRateLimitStore("email-verification");
+const sendSchema = z.object({
+  email: z
+    .string()
+    .trim()
+    .email()
+    .max(254)
+    .transform((value) => value.toLowerCase()),
+  userId: z.string().max(100).optional(),
+  type: z.enum(["code", "link"]).default("code"),
 });
+const verifySchema = z
+  .object({
+    userId: z.string().max(100).optional(),
+    code: z
+      .string()
+      .regex(/^\d{6}$/)
+      .optional(),
+    token: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .optional(),
+  })
+  .refine((value) => Boolean(value.code) !== Boolean(value.token));
+
+function invalid() {
+  return NextResponse.json(
+    { error: "Código o token inválido, utilizado o expirado" },
+    { status: 400 },
+  );
+}
+
+async function throttle(key: string, limit: number) {
+  const result = await attempts.consume(key, limit, 15 * 60 * 1000);
+  return result.allowed
+    ? null
+    : NextResponse.json(
+        { error: "Demasiados intentos. Inténtalo más tarde" },
+        {
+          status: 429,
+          headers: { "Retry-After": String(result.retryAfterSeconds) },
+        },
+      );
+}
 
 export async function POST(req: NextRequest) {
+  const access = await authorizeRequest(req, ["admin", "client"]);
+  if (!access.authorized) return access.response;
+  const parsed = sendSchema.safeParse(await req.json().catch(() => null));
+  if (!parsed.success)
+    return NextResponse.json({ error: "Email inválido" }, { status: 400 });
+  const userId = String(access.token.id);
+  if (parsed.data.userId && parsed.data.userId !== userId) {
+    return NextResponse.json({ error: "No autorizado" }, { status: 403 });
+  }
+  const limited = await throttle("send:" + userId, 3);
+  if (limited) return limited;
+
   try {
-    const { email, userId, type = "code" } = await req.json();
-
-    if (!email || !userId) {
+    const { email, type } = parsed.data;
+    const [existingUser, existingVerification] = await Promise.all([
+      prisma.user.findFirst({
+        where: {
+          username: { equals: email, mode: "insensitive" },
+          id: { not: userId },
+        },
+        select: { id: true },
+      }),
+      prisma.emailVerification.findFirst({
+        where: {
+          email: { equals: email, mode: "insensitive" },
+          userId: { not: userId },
+        },
+        select: { id: true },
+      }),
+    ]);
+    if (existingUser || existingVerification) {
       return NextResponse.json(
-        { error: "Email y userId son requeridos" },
-        { status: 400 }
+        { error: "Este email ya está en uso" },
+        { status: 409 },
       );
     }
-
-    // Check if email is already in use by another user
-    const existingUser = await prisma.user.findFirst({
-      where: {
-        username: email,
-        NOT: { id: userId }
-      }
+    const code = randomInt(100000, 1000000).toString();
+    const token = randomBytes(32).toString("hex");
+    const data = {
+      email,
+      code,
+      token,
+      verified: false,
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+    };
+    await prisma.emailVerification.upsert({
+      where: { userId },
+      create: { userId, ...data },
+      update: data,
     });
-
-    if (existingUser) {
-      return NextResponse.json(
-        { error: "Este email ya está en uso por otro usuario" },
-        { status: 400 }
-      );
-    }
-
-    // Generate verification code or token
-    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
-    const verificationToken = crypto.randomBytes(32).toString('hex');
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
-
-    // Store verification data (using raw query until Prisma is regenerated)
-    await prisma.$executeRaw`
-      INSERT INTO email_verifications (id, "userId", email, code, token, verified, "expiresAt", "createdAt", "updatedAt")
-      VALUES (gen_random_uuid(), ${userId}, ${email}, ${verificationCode}, ${verificationToken}, false, ${expiresAt}, NOW(), NOW())
-      ON CONFLICT ("userId") 
-      DO UPDATE SET 
-        email = ${email},
-        code = ${verificationCode},
-        token = ${verificationToken},
-        "expiresAt" = ${expiresAt},
-        verified = false,
-        "updatedAt" = NOW()
-    `;
-
-    // Send verification email
-    const verificationUrl = `${process.env.NEXTAUTH_URL}/auth/verify-email?token=${verificationToken}`;
-    
-    const mailOptions = {
+    const port = Number(
+      process.env.SMTP_PORT || process.env.EMAIL_PORT || "587",
+    );
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST || process.env.EMAIL_HOST || "smtp.gmail.com",
+      port,
+      secure: port === 465,
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 15000,
+      dnsTimeout: 10000,
+      auth: {
+        user: process.env.SMTP_USER || process.env.EMAIL_USER,
+        pass: process.env.SMTP_PASS || process.env.EMAIL_PASS,
+      },
+    });
+    const link = getAppBaseUrl() + "/auth/verify-email?token=" + token;
+    const message = {
       from:
         process.env.SMTP_FROM ||
         process.env.EMAIL_FROM ||
@@ -72,126 +131,84 @@ export async function POST(req: NextRequest) {
         process.env.EMAIL_USER,
       to: email,
       subject: "Verificación de Email - Wolf Gym",
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #1f2937;">Verificación de Email</h2>
-          <p>Hola,</p>
-          <p>Has solicitado cambiar tu nombre de usuario por este email. Para completar el proceso, necesitamos verificar tu dirección de correo.</p>
-          
-          ${type === "code" ? `
-            <div style="background-color: #f3f4f6; padding: 20px; border-radius: 8px; text-align: center; margin: 20px 0;">
-              <h3 style="margin: 0; color: #1f2937;">Tu código de verificación:</h3>
-              <div style="font-size: 32px; font-weight: bold; color: #3b82f6; margin: 10px 0;">${verificationCode}</div>
-              <p style="margin: 0; color: #6b7280;">Este código expira en 15 minutos</p>
-            </div>
-          ` : `
-            <div style="text-align: center; margin: 30px 0;">
-              <a href="${verificationUrl}" 
-                 style="background-color: #3b82f6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
-                Verificar Email
-              </a>
-            </div>
-            <p style="color: #6b7280; font-size: 14px;">
-              Si no puedes hacer clic en el botón, copia y pega este enlace en tu navegador:<br>
-              <a href="${verificationUrl}">${verificationUrl}</a>
-            </p>
-          `}
-          
-          <p style="color: #6b7280; font-size: 14px; margin-top: 30px;">
-            Si no solicitaste este cambio, puedes ignorar este email.
-          </p>
-          
-          <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
-          <p style="color: #9ca3af; font-size: 12px; text-align: center;">
-            Wolf Gym - Sistema de Gestión
-          </p>
-        </div>
-      `,
+      text:
+        type === "code"
+          ? "Tu código de verificación es " + code + ". Expira en 15 minutos."
+          : "Verifica tu email: " + link + " (expira en 15 minutos).",
     };
-
-    await transporter.sendMail(mailOptions);
-
+    if (!(await saveLocalMail(message))) {
+      assertExternalWrites();
+      await transporter.sendMail(message);
+    }
     return NextResponse.json({
       success: true,
-      message: type === "code" 
-        ? "Código de verificación enviado a tu email" 
-        : "Link de verificación enviado a tu email",
-      type
+      message:
+        type === "code"
+          ? "Código de verificación enviado a tu email"
+          : "Link de verificación enviado a tu email",
+      type,
     });
-
-  } catch (error) {
-    console.error("Error sending verification email:", error);
+  } catch {
     return NextResponse.json(
-      { error: "Error al enviar el email de verificación" },
-      { status: 500 }
+      { error: "No se pudo enviar el email de verificación" },
+      { status: 502 },
     );
   }
 }
 
 export async function PUT(req: NextRequest) {
+  const parsed = verifySchema.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) return invalid();
+  let userId: string | undefined;
+  if (parsed.data.code) {
+    const access = await authorizeRequest(req, ["admin", "client"]);
+    if (!access.authorized) return access.response;
+    userId = String(access.token.id);
+    if (parsed.data.userId && parsed.data.userId !== userId) {
+      return NextResponse.json({ error: "No autorizado" }, { status: 403 });
+    }
+    const limited = await throttle("verify:" + userId, 8);
+    if (limited) return limited;
+  }
   try {
-    const { userId, code, token } = await req.json();
-
-    if (!userId || (!code && !token)) {
-      return NextResponse.json(
-        { error: "Datos de verificación incompletos" },
-        { status: 400 }
-      );
-    }
-
-    // Find verification record (using raw query until Prisma is regenerated)
-    const verification = userId 
-      ? await prisma.$queryRaw`SELECT * FROM email_verifications WHERE "userId" = ${userId} LIMIT 1`
-      : await prisma.$queryRaw`SELECT * FROM email_verifications WHERE token = ${token} LIMIT 1`;
-    
-    const verificationRecord = Array.isArray(verification) ? verification[0] : null;
-
-    if (!verificationRecord) {
-      return NextResponse.json(
-        { error: "No se encontró solicitud de verificación" },
-        { status: 404 }
-      );
-    }
-
-    // Check if expired
-    if (verificationRecord.expiresAt < new Date()) {
-      return NextResponse.json(
-        { error: "El código/token de verificación ha expirado" },
-        { status: 400 }
-      );
-    }
-
-    // Verify code or token
-    if (code && verificationRecord.code !== code) {
-      return NextResponse.json(
-        { error: "Código o token de verificación inválido" },
-        { status: 400 }
-      );
-    }
-
-    // Update user's username to email
-    await prisma.user.update({
-      where: { id: verificationRecord.userId },
-      data: { username: verificationRecord.email },
+    const record = await prisma.emailVerification.findFirst({
+      where: {
+        ...(userId
+          ? { userId, code: parsed.data.code }
+          : { token: parsed.data.token }),
+        verified: false,
+        expiresAt: { gt: new Date() },
+      },
     });
-
-    // Mark as verified (using raw query until Prisma is regenerated)
-    await prisma.$executeRaw`
-      UPDATE email_verifications 
-      SET verified = true, "updatedAt" = NOW() 
-      WHERE "userId" = ${verificationRecord.userId}
-    `;
-
+    if (!record) return invalid();
+    const consumed = await prisma.$transaction(async (tx) => {
+      const claimed = await tx.emailVerification.updateMany({
+        where: {
+          id: record.id,
+          token: record.token,
+          code: record.code,
+          verified: false,
+          expiresAt: { gt: new Date() },
+        },
+        data: { verified: true },
+      });
+      if (claimed.count !== 1) return false;
+      await tx.user.update({
+        where: { id: record.userId },
+        data: { username: record.email },
+      });
+      return true;
+    });
+    if (!consumed) return invalid();
     return NextResponse.json({
       success: true,
-      message: "Email verificado exitosamente. Tu nombre de usuario ha sido actualizado."
+      message:
+        "Email verificado exitosamente. Tu nombre de usuario ha sido actualizado.",
     });
-
-  } catch (error) {
-    console.error("Error verifying email:", error);
+  } catch {
     return NextResponse.json(
-      { error: "Error al verificar el email" },
-      { status: 500 }
+      { error: "No se pudo verificar el email" },
+      { status: 500 },
     );
   }
 }

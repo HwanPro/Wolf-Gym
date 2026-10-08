@@ -2,7 +2,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { format } from "date-fns";
+import { renewalPeriod } from "@/domain/attendance/renewal-period";
 import {
   DEFAULT_MEMBERSHIP_PLANS,
   type MembershipPlanView,
@@ -10,10 +10,14 @@ import {
 
 interface MembershipSelectionProps {
   onPlanSelect: (plan: string, startDate: string, endDate: string) => void;
+  currentStartDate?: string;
+  currentEndDate?: string;
 }
 
 export default function MembershipSelection({
   onPlanSelect,
+  currentStartDate,
+  currentEndDate,
 }: MembershipSelectionProps) {
   const [plans, setPlans] = useState<MembershipPlanView[]>(
     DEFAULT_MEMBERSHIP_PLANS,
@@ -44,12 +48,8 @@ export default function MembershipSelection({
 
   const handlePlanSelect = (planName: string, duration: number) => {
     setSelectedPlan(planName);
-    const start = new Date();
-    const formattedStart = format(start, "yyyy-MM-dd");
-    const end = new Date(start);
-    end.setDate(end.getDate() + duration * multiplier);
-    const formattedEnd = format(end, "yyyy-MM-dd");
-    onPlanSelect(planName, formattedStart, formattedEnd);
+    const period = renewalPeriod(duration * multiplier, currentStartDate, currentEndDate);
+    onPlanSelect(planName, period.startDate, period.endDate);
   };
 
   const handleMultiplierChange = (newMultiplier: number) => {
@@ -58,11 +58,8 @@ export default function MembershipSelection({
     if (!plan) return;
 
     setSelectedPlan(plan.name);
-    const start = new Date();
-    const formattedStart = format(start, "yyyy-MM-dd");
-    const end = new Date(start);
-    end.setDate(end.getDate() + plan.durationDays * newMultiplier);
-    onPlanSelect(plan.name, formattedStart, format(end, "yyyy-MM-dd"));
+    const period = renewalPeriod(plan.durationDays * newMultiplier, currentStartDate, currentEndDate);
+    onPlanSelect(plan.name, period.startDate, period.endDate);
   };
 
   return (
@@ -84,6 +81,7 @@ export default function MembershipSelection({
             </span>
             <button
               type="button"
+              aria-label="Reducir periodos de membresía"
               onClick={() =>
                 handleMultiplierChange(Math.max(1, multiplier - 1))
               }
@@ -97,6 +95,7 @@ export default function MembershipSelection({
             </span>
             <button
               type="button"
+              aria-label="Aumentar periodos de membresía"
               onClick={() => handleMultiplierChange(multiplier + 1)}
               className="grid h-10 w-10 place-items-center rounded-md bg-yellow-400 text-base font-black text-black hover:bg-yellow-300"
             >
@@ -129,6 +128,7 @@ export default function MembershipSelection({
             <button
               type="button"
               key={plan.name}
+              aria-pressed={selectedPlan === plan.name}
               onClick={() => handlePlanSelect(plan.name, plan.durationDays)}
               className={`rounded-md border p-3 text-left transition-colors ${
                 selectedPlan === plan.name

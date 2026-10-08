@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getToken } from "next-auth/jwt";
+import { requestToken } from "@/server/auth/authorization";
 import prisma from "@/infrastructure/prisma/prisma";
+import { getLimaDayRange, limaDateParts } from "@/domain/attendance/attendance-policy";
 
 type Severity = "high" | "medium" | "low";
 
@@ -14,14 +15,13 @@ type Inconsistency = {
 };
 
 function toMonthKey(date: Date) {
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  return `${date.getFullYear()}-${month}`;
+  const parts = limaDateParts(date);
+  return `${parts.year}-${String(parts.month).padStart(2, "0")}`;
 }
 
 function toDayKey(date: Date) {
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${date.getFullYear()}-${month}-${day}`;
+  const parts = limaDateParts(date);
+  return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
 }
 
 function toNumber(value: unknown) {
@@ -54,30 +54,21 @@ function pushIssue(
 }
 
 export async function GET(request: NextRequest) {
-  const token = await getToken({
-    req: request,
-    secret: process.env.NEXTAUTH_SECRET,
-  });
+  const token = await requestToken(request);
 
-  if (!token || token.role !== "admin") {
+  if (!token) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  }
+  if (token.role !== "admin") {
+    return NextResponse.json({ error: "No autorizado" }, { status: 403 });
   }
 
   try {
     const now = new Date();
-    const todayStart = new Date(now);
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date(now);
-    todayEnd.setHours(23, 59, 59, 999);
-
-    const sixMonthsAgo = new Date(now);
-    sixMonthsAgo.setMonth(now.getMonth() - 5);
-    sixMonthsAgo.setDate(1);
-    sixMonthsAgo.setHours(0, 0, 0, 0);
-
-    const fourteenDaysAgo = new Date(now);
-    fourteenDaysAgo.setDate(now.getDate() - 13);
-    fourteenDaysAgo.setHours(0, 0, 0, 0);
+    const { start: todayStart, end: todayEnd } = getLimaDayRange(now);
+    const local = limaDateParts(now);
+    const sixMonthsAgo = new Date(Date.UTC(local.year, local.month - 6, 1, 5));
+    const fourteenDaysAgo = new Date(todayStart.getTime() - 13 * 86400000);
 
     const thirtyDaysAgo = new Date(now);
     thirtyDaysAgo.setDate(now.getDate() - 30);
@@ -96,10 +87,10 @@ export async function GET(request: NextRequest) {
       dailyDebtsCount,
       debtHistoryCount,
     ] = await Promise.all([
-      prisma.paymentRecord.aggregate({
+      prisma.paymentRecord.aggregate({ where: { payment_status: "COMPLETED" },
         _sum: { payment_amount: true },
       }),
-      prisma.purchase.aggregate({
+      prisma.purchase.aggregate({ where: { OR: [{ cashSaleId: null }, { cashSale: { is: { status: { not: "VOIDED" } } } }] },
         _sum: { purchase_total: true },
       }),
       prisma.user.count({
@@ -111,15 +102,15 @@ export async function GET(request: NextRequest) {
       prisma.clientProfile.count({
         where: {
           user: { is: { role: "client" } },
-          profile_end_date: { gte: now },
+          profile_end_date: { gte: new Date(Date.UTC(local.year, local.month - 1, local.day)) },
         },
       }),
       prisma.paymentRecord.findMany({
-        where: { payment_date: { gte: sixMonthsAgo } },
+        where: { payment_status: "COMPLETED", payment_date: { gte: sixMonthsAgo } },
         select: { payment_amount: true, payment_date: true },
       }),
       prisma.purchase.findMany({
-        where: { purchase_date: { gte: sixMonthsAgo } },
+        where: { OR: [{ cashSaleId: null }, { cashSale: { is: { status: { not: "VOIDED" } } } }], purchase_date: { gte: sixMonthsAgo } },
         select: {
           purchase_total: true,
           purchase_quantity: true,
@@ -167,8 +158,7 @@ export async function GET(request: NextRequest) {
 
     const monthKeys: string[] = [];
     for (let i = 5; i >= 0; i--) {
-      const date = new Date(now);
-      date.setMonth(now.getMonth() - i);
+      const date = new Date(Date.UTC(local.year, local.month - 1 - i, 1, 5));
       monthKeys.push(toMonthKey(date));
     }
 
@@ -192,8 +182,7 @@ export async function GET(request: NextRequest) {
 
     const dayKeys: string[] = [];
     for (let i = 13; i >= 0; i--) {
-      const date = new Date(now);
-      date.setDate(now.getDate() - i);
+      const date = new Date(todayStart.getTime() - i * 86400000);
       dayKeys.push(toDayKey(date));
     }
 

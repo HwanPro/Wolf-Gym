@@ -18,7 +18,7 @@ export async function POST(request: Request) {
       );
     }
 
-    if (typeof newPassword !== "string" || newPassword.length < 8) {
+    if (typeof newPassword !== "string" || newPassword.length < 8 || Buffer.byteLength(newPassword, "utf8") > 72) {
       return NextResponse.json(
         { message: "La nueva contrasena debe tener al menos 8 caracteres" },
         { status: 400 }
@@ -41,21 +41,24 @@ export async function POST(request: Request) {
       );
     }
 
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
 
-    await prisma.$transaction([
-      prisma.user.update({
+    const consumed = await prisma.$transaction(async (tx) => {
+      const claimed = await tx.passwordResetToken.updateMany({
+        where: { id: resetToken.id, tokenHash: resetToken.tokenHash, usedAt: null, expiresAt: { gt: new Date() } },
+        data: { usedAt: new Date() },
+      });
+      if (claimed.count !== 1) return false;
+      await tx.user.update({
         where: { id: resetToken.userId },
         data: { password: hashedPassword },
-      }),
-      prisma.passwordResetToken.update({
-        where: { id: resetToken.id },
-        data: { usedAt: new Date() },
-      }),
-      prisma.session.deleteMany({
+      });
+      await tx.session.deleteMany({
         where: { userId: resetToken.userId },
-      }),
-    ]);
+      });
+      return true;
+    });
+    if (!consumed) return NextResponse.json({ message: "El enlace es inválido o ya expiró" }, { status: 400 });
 
     return NextResponse.json({
       message: "Contrasena restablecida correctamente. Ya puedes iniciar sesion.",

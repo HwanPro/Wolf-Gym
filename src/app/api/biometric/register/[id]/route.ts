@@ -34,9 +34,9 @@ export async function POST(
     type IncomingBody = { templates?: unknown; template?: unknown; fingerIndex?: unknown; finger_index?: unknown };
     const body = raw as IncomingBody;
     const rawFingerIndex = body.fingerIndex ?? body.finger_index ?? 0;
-    const fingerIndex = Number.isInteger(Number(rawFingerIndex)) ? Number(rawFingerIndex) : 0;
+    const fingerIndex = Number(rawFingerIndex);
 
-    if (fingerIndex < 0 || fingerIndex > 9) {
+    if (!Number.isInteger(fingerIndex) || fingerIndex < 0 || fingerIndex > 9) {
       return NextResponse.json({ ok: false, message: "El dedo seleccionado no es válido." }, { status: 400 });
     }
 
@@ -46,7 +46,10 @@ export async function POST(
           .map((x) => x as string)
       : null;
 
-    if (templatesBody?.length !== 3) {
+    if (templatesBody?.length !== 3 || templatesBody.some(template =>
+      template.length > 2732 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(template) ||
+      Buffer.from(template, "base64").length > 2048
+    )) {
       return NextResponse.json(
         {
           ok: false,
@@ -71,14 +74,25 @@ export async function POST(
       cache: "no-store",
     });
 
-    const enrollData = (await enrollRes.json().catch(() => ({}))) as { ok?: boolean };
-    const ok = enrollRes.ok && enrollData?.ok !== false;
+    const enrollData = (await enrollRes.json().catch(() => ({}))) as { ok?: boolean; message?: string };
+    const ok = enrollRes.ok && enrollData?.ok === true;
+    const duplicate = enrollRes.status === 409 && enrollData.message === "FINGERPRINT_ALREADY_REGISTERED";
+    const mismatchedSamples = enrollData.ok === false && (
+      enrollData.message === "SAMPLES_DO_NOT_MATCH" ||
+      enrollData.message === "Please press the same finger 3 times for the enrollment"
+    );
+    const message = duplicate
+      ? "Esta huella ya está registrada en otro cliente. Usa un dedo diferente."
+      : mismatchedSamples
+        ? "Las muestras no corresponden al mismo dedo. Repite las tres muestras usando un solo dedo."
+        : "No se pudo registrar la huella.";
+    const reason = duplicate ? "FINGERPRINT_ALREADY_REGISTERED" : mismatchedSamples ? "SAMPLES_DO_NOT_MATCH" : undefined;
 
     return NextResponse.json(
       ok
         ? { ok: true, message: "Huella registrada correctamente." }
-        : { ok: false, message: "No se pudo registrar la huella." },
-      { status: ok ? 200 : enrollRes.status || 500 }
+        : { ok: false, message, ...(reason ? { reason } : {}) },
+      { status: ok ? 200 : mismatchedSamples ? 400 : enrollRes.ok ? 502 : enrollRes.status }
     );
   } catch (err: unknown) {
     const aborted = (err as { name?: string } | undefined)?.name === "AbortError";

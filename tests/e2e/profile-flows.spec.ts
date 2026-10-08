@@ -2,6 +2,7 @@ import "dotenv/config";
 
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { encode } from "next-auth/jwt";
+import fs from "node:fs";
 
 type Role = "admin" | "client";
 
@@ -28,6 +29,11 @@ async function authenticate(
     },
   });
 
+  // UI fixtures isolate presentation; they do not exercise server authorization.
+  await context.route("**/api/auth/session", route => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({ expires: "2099-01-01T00:00:00.000Z", user: { id: id, role: role, name: "usuario_e2e", firstName: "Cliente", lastName: "Prueba" } }),
+  }));
   await context.addCookies([
     {
       name: "next-auth.session-token",
@@ -216,12 +222,18 @@ test("role boundaries redirect users to their own dashboard", async ({
   page,
   context,
 }) => {
-  await authenticate(context, "client");
+  const accounts = JSON.parse(fs.readFileSync(".local/test-accounts.json", "utf8")).accounts as { role: string; username: string; password: string }[];
+  const realLogin = async (role: string) => {
+    const account = accounts.find(row => row.role === role)!;
+    const csrf = await (await context.request.get("/api/auth/csrf")).json();
+    await context.request.post("/api/auth/callback/credentials", { form: { csrfToken: csrf.csrfToken, username: account.username, password: account.password, json: "true", callbackUrl: "/" } });
+  };
+  await realLogin("client");
   await page.goto("/admin/profile");
   await expect(page).toHaveURL(/\/client\/dashboard$/);
 
   await context.clearCookies();
-  await authenticate(context, "admin");
+  await realLogin("admin");
   await page.goto("/client/dashboard");
   await expect(page).toHaveURL(/\/admin\/dashboard$/);
 });

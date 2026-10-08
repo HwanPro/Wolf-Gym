@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { authOptions } from "@/lib/auth-options";
 import { PrismaClient } from "@prisma/client";
 import { z } from "zod";
 
@@ -22,7 +22,7 @@ const addWorkoutExerciseSchema = z.object({
 // POST - Agregar ejercicio a entrenamiento
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -35,7 +35,7 @@ export async function POST(
 
     // Verificar que el entrenamiento existe y pertenece al usuario
     const workout = await prisma.workoutSession.findUnique({
-      where: { id: params.id }
+      where: { id: (await params).id }
     });
 
     if (!workout || workout.userId !== session.user.id) {
@@ -68,7 +68,7 @@ export async function POST(
     let order = data.order;
     if (!order) {
       const lastExercise = await prisma.workoutExercise.findFirst({
-        where: { workoutSessionId: params.id },
+        where: { workoutSessionId: (await params).id },
         orderBy: { order: 'desc' }
       });
       order = (lastExercise?.order || 0) + 1;
@@ -76,7 +76,7 @@ export async function POST(
 
     const workoutExercise = await prisma.workoutExercise.create({
       data: {
-        workoutSessionId: params.id,
+        workoutSessionId: (await params).id,
         exerciseId: data.exerciseId,
         order,
         targetSets: data.targetSets,
@@ -108,7 +108,7 @@ export async function POST(
 // GET - Obtener ejercicios de un entrenamiento
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -118,7 +118,7 @@ export async function GET(
 
     // Verificar que el entrenamiento existe y pertenece al usuario
     const workout = await prisma.workoutSession.findUnique({
-      where: { id: params.id }
+      where: { id: (await params).id }
     });
 
     if (!workout || workout.userId !== session.user.id) {
@@ -129,7 +129,7 @@ export async function GET(
     }
 
     const exercises = await prisma.workoutExercise.findMany({
-      where: { workoutSessionId: params.id },
+      where: { workoutSessionId: (await params).id },
       include: {
         exercise: {
           include: {

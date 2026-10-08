@@ -1,3 +1,4 @@
+import { assertExternalWrites } from "@/server/security/external-writes";
 import { NextRequest, NextResponse } from "next/server";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
@@ -36,6 +37,7 @@ export async function GET(request: NextRequest) {
     });
 
     // URL temporal: evita conservar rutas reutilizables durante una sesión completa.
+    assertExternalWrites();
     const signedUrl = await getSignedUrl(s3Client, command, {
       expiresIn: 300,
     });

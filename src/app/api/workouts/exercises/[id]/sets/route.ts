@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { authOptions } from "@/lib/auth-options";
 import { PrismaClient } from "@prisma/client";
 import { z } from "zod";
 
@@ -8,17 +8,17 @@ const prisma = new PrismaClient();
 
 const createSetSchema = z.object({
   weight: z.number().nonnegative(),
-  reps: z.number().min(1),
+  reps: z.number().int().min(1),
   rpe: z.number().min(1).max(10).optional(),
   isWarmup: z.boolean().optional().default(false),
-  restSec: z.number().min(0).optional(),
+  restSec: z.number().int().min(0).optional(),
   note: z.string().optional()
 });
 
 // POST /api/workouts/exercises/[id]/sets
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -29,8 +29,12 @@ export async function POST(
     const body = await req.json();
     const data = createSetSchema.parse(body);
 
+    const initial = await prisma.workoutExercise.findUnique({where: {id: (await params).id}});
+    if (!initial) return NextResponse.json({error: 'Ejercicio no encontrado'}, {status: 404});
+    return await prisma.$transaction(async prisma => {
+      await prisma.$executeRawUnsafe('SELECT pg_advisory_xact_lock(hashtext($1))', 'workout:' + initial.workoutSessionId);
     const wExercise = await prisma.workoutExercise.findUnique({
-      where: { id: params.id },
+      where: { id: (await params).id },
       include: {
         workoutSession: true,
         exercise: true,
@@ -56,7 +60,7 @@ export async function POST(
 
     const created = await prisma.workoutSet.create({
       data: {
-        workoutExerciseId: params.id,
+        workoutExerciseId: (await params).id,
         setIndex: nextIndex,
         weight: data.weight,
         reps: data.reps,
@@ -69,7 +73,7 @@ export async function POST(
 
     // Recalcular KPIs parciales del workout (volumen, sets, reps)
     const allSets = await prisma.workoutSet.findMany({
-      where: { workoutExerciseId: params.id, isWarmup: false }
+      where: { workoutExerciseId: (await params).id, isWarmup: false }
     });
 
     const partialVolume = allSets.reduce((acc, s) => acc + s.weight * s.reps, 0);
@@ -99,6 +103,7 @@ export async function POST(
         partialSets,
         partialReps
       }
+    });
     });
   } catch (error) {
     if (error instanceof z.ZodError) {

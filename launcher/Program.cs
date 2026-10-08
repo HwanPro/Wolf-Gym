@@ -96,7 +96,7 @@ internal static class Program
             StartProcess(
                 "Web",
                 nodeExe,
-                $"\"{nextCli}\" start -p 3000",
+                $"\"{nextCli}\" start -p 3000 --hostname 127.0.0.1",
                 webDir,
                 Path.Combine(_logDir, "web.log"));
         }
@@ -191,7 +191,7 @@ internal static class Program
             var psi = new ProcessStartInfo
             {
                 FileName = "powershell.exe",
-                Arguments = $"-NoProfile -ExecutionPolicy Bypass -File \"{scriptPath}\" -Root \"{root}\" -Zip \"{zipPath}\" -Pid {Environment.ProcessId} -Log \"{updaterLog}\"",
+                Arguments = $"-NoProfile -ExecutionPolicy Bypass -File \"{scriptPath}\" -Root \"{root}\" -Zip \"{zipPath}\" -LauncherPid {Environment.ProcessId} -Log \"{updaterLog}\"",
                 UseShellExecute = true,
                 WorkingDirectory = root,
             };
@@ -268,11 +268,23 @@ internal static class Program
 param(
     [Parameter(Mandatory=$true)][string]$Root,
     [Parameter(Mandatory=$true)][string]$Zip,
-    [Parameter(Mandatory=$true)][int]$Pid,
+    [Parameter(Mandatory=$true)][int]$LauncherPid,
     [Parameter(Mandatory=$true)][string]$Log
 )
 
 $ErrorActionPreference = "Stop"
+$Root = (Resolve-Path -LiteralPath $Root -ErrorAction Stop).ProviderPath
+if ($Root.TrimEnd('\') -eq [IO.Path]::GetPathRoot($Root).TrimEnd('\') -or
+    -not (Test-Path -LiteralPath (Join-Path $Root "WolfGymLauncher.exe") -PathType Leaf)) {
+    throw "La carpeta de actualizacion no es una instalacion de WolfGym."
+}
+function Assert-ChildPath([string]$Path, [string]$Parent) {
+    $full = [IO.Path]::GetFullPath($Path)
+    $prefix = [IO.Path]::GetFullPath($Parent).TrimEnd('\') + '\'
+    if (-not $full.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Ruta fuera de la carpeta de actualizacion."
+    }
+}
 $launcher = Join-Path $Root "WolfGymLauncher.exe"
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $stage = Join-Path $env:TEMP ("WolfGym-stage-" + [guid]::NewGuid().ToString("N"))
@@ -282,7 +294,9 @@ $preserve = @(
     "logs",
     "biometric\appsettings.json",
     "webapp\.env",
-    "webapp\.env.local"
+    "webapp\.env.local",
+    "webapp\.env.production",
+    "webapp\.env.production.local"
 )
 $preserveDir = Join-Path $env:TEMP ("WolfGym-preserve-" + [guid]::NewGuid().ToString("N"))
 
@@ -297,6 +311,7 @@ function Remove-CurrentPayload {
     Get-ChildItem -LiteralPath $Root -Force -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -notlike "_backup_*" } |
         ForEach-Object {
+            Assert-ChildPath $_.FullName $Root
             Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction Stop
         }
 }
@@ -317,11 +332,14 @@ function Restore-Backup {
 
 Write-Host "Actualizando WolfGym..." -ForegroundColor Yellow
 Write-Log "Inicio de actualizacion. Root=$Root Zip=$Zip"
-while (Get-Process -Id $Pid -ErrorAction SilentlyContinue) {
+while (Get-Process -Id $LauncherPid -ErrorAction SilentlyContinue) {
     Start-Sleep -Milliseconds 300
 }
 
 try {
+    Assert-ChildPath $stage $env:TEMP
+    Assert-ChildPath $preserveDir $env:TEMP
+    Assert-ChildPath $backup $Root
     New-Item -ItemType Directory -Path $stage -Force | Out-Null
     New-Item -ItemType Directory -Path $backup -Force | Out-Null
     New-Item -ItemType Directory -Path $preserveDir -Force | Out-Null
@@ -356,23 +374,28 @@ try {
     }
     Write-Log "Payload validado correctamente."
 
-    Get-Process -Name "WolfGym.BiometricService" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     try {
-        Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue |
-            Where-Object { $_.CommandLine -and $_.CommandLine.IndexOf($Root, [StringComparison]::OrdinalIgnoreCase) -ge 0 } |
+        $runtimePaths = @(
+            (Join-Path $Root "runtime\node.exe"),
+            (Join-Path $Root "biometric\WolfGym.BiometricService.exe")
+        )
+        Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+            Where-Object { $_.ExecutablePath -and $runtimePaths -contains $_.ExecutablePath } |
             ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
     } catch {
-        Write-Log "No se pudo consultar WMI para cerrar Node; se continuara con el reemplazo."
+        Write-Log "No se pudo consultar WMI para cerrar los servicios de esta instalacion."
     }
     Start-Sleep -Milliseconds 700
 
     Get-ChildItem -LiteralPath $Root -Force |
         Where-Object { $_.Name -notlike "_backup_*" } |
         ForEach-Object {
-            Move-Item -LiteralPath $_.FullName -Destination (Join-Path $backup $_.Name) -Force
+            Assert-ChildPath $_.FullName $Root
+            Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $backup $_.Name) -Recurse -Force
         }
     $backupReady = $true
-    Write-Log "Contenido actual movido a backup: $backup"
+    Write-Log "Backup completo preparado: $backup"
+    Remove-CurrentPayload
 
     Copy-Item -Path (Join-Path $payload "*") -Destination $Root -Recurse -Force
     Write-Log "Payload copiado a raiz."
@@ -457,6 +480,7 @@ try {
         psi.Environment["NEXT_PUBLIC_BIOMETRIC_BASE"] = "http://127.0.0.1:8001";
         psi.Environment["NEXT_PUBLIC_KIOSK"] = "1";
         psi.Environment["NEXTAUTH_URL"] = "http://127.0.0.1:3000";
+        psi.Environment["NEXT_DIST_DIR"] = ".next";
     }
 
     private static void SetBiometricEnvironment(ProcessStartInfo psi, string webDirectory)

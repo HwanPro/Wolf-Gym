@@ -11,6 +11,11 @@ async function authenticateAdmin(context: BrowserContext) {
     secret,
     token: { id: "admin-report-e2e", sub: "admin-report-e2e", role: "admin" },
   });
+  // UI fixtures isolate presentation; they do not exercise server authorization.
+  await context.route("**/api/auth/session", route => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({ expires: "2099-01-01T00:00:00.000Z", user: { id: "admin-report-e2e", role: "admin", name: "usuario_e2e", firstName: "Cliente", lastName: "Prueba" } }),
+  }));
   await context.addCookies([
     {
       name: "next-auth.session-token",

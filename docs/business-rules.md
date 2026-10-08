@@ -12,6 +12,10 @@ servicios de infraestructura encapsulan base de datos y proveedores externos.
 - El login devuelve un error genérico para usuario inexistente o contraseña incorrecta.
 - Si el usuario tiene 2FA habilitado, el login requiere un TOTP válido de seis dígitos.
 - El alta y la verificación de 2FA solo pueden afectar al usuario autenticado.
+- Las APIs revalidan cada JWT contra contraseña/factor/rol y el contador monotónico securityVersion. Cambiar credenciales revoca sesiones; restaurar los valores anteriores no reactiva JWT antiguos. Las sesiones anteriores a este control requieren nuevo login.
+- El alta 2FA exige un desafío del servidor de diez minutos; no permite reemplazar un factor ya activo.
+- Verificar email exige código de la propia sesión o token exacto vigente, de un solo uso. No basta indicar un `userId`.
+- La distinción 401/403 es el contrato de aceptación; algunas rutas heredadas aún usan códigos diferentes y deben revisarse en las pruebas manuales.
 
 ## Asistencia y membresías
 
@@ -19,10 +23,12 @@ servicios de infraestructura encapsulan base de datos y proveedores externos.
 - Horario de acceso: lunes a viernes 06:00-21:00 y sábado 06:00-20:00. Domingo cerrado.
 - Un check-in fuera de horario responde `400`, `reason: "gym_closed"`.
 - Una membresía vence después de terminar su fecha final en Lima; durante esa fecha `daysLeft` es `0` y aún está activa.
-- Sin fecha final configurada, el acceso no se bloquea por vencimiento.
+- Sin fecha final válida configurada, se bloquea la entrada hasta asignar una membresía vigente. Decisión del responsable confirmada el 6 de octubre de 2026. La salida de una asistencia abierta sigue permitida.
 - Antirrebote: 60 segundos. Límite: dos entradas por día de Lima.
 - El checkout exige una entrada abierta y puede realizarse aunque haya terminado el horario.
 - Las sesiones abiertas por 180 minutos se cierran automáticamente.
+- Recepción, display, historial, streams y acciones biométricas requieren administrador.
+- Check-in serializa las acciones de un mismo usuario dentro de una transacción PostgreSQL; probar concurrencia real antes de operar.
 
 ## Productos, ventas y deudas
 
@@ -33,15 +39,25 @@ servicios de infraestructura encapsulan base de datos y proveedores externos.
 - El descuento y el total se calculan en el servidor; nunca se confía en un total enviado por el navegador.
 - La reducción de stock y la creación de la compra ocurren en una transacción.
 - Una actualización condicional impide stock negativo ante ventas concurrentes; el conflicto responde `409`.
-- Una compra pública autenticada siempre se asigna al usuario de la sesión, no a un `customerId` del body.
-- Las deudas personalizadas requieren nombre y monto; todas las mutaciones de deuda requieren administrador.
+- Una compra Culqi autenticada se asigna al usuario de la sesión, no a un `customerId` del body. El POST directo de productos públicos requiere administrador para evitar compras sin pago.
+- Inventario, recepción, tienda y caja leen InventoryItem en PostgreSQL. SKU y categoría son explícitos; los servicios pueden desactivar control de stock. Editar inventario exige la versión actual del producto; un editor anterior a una venta recibe 409 y no repone stock perdido.
+- Caja exige turno abierto. Fondo, ingresos/retiros, cobros, anulaciones y cierre se serializan y guardan en la base. Solo puede haber un turno abierto por caja.
+- Las acciones de caja llevan Idempotency-Key persistente: repetir el mismo intento recupera el resultado; cambiar el contenido con esa clave responde 409.
+- Caja admite efectivo, Yape, Plin, tarjeta, transferencia y otros; pagos divididos, efectivo recibido y vuelto. El saldo pendiente exige cliente con perfil. Precio/stock/saldo se verifican en servidor.
+- Recepción crea créditos desde el catálogo central a través de la misma transacción de caja. No admite nombres, precios o categorías de productos fijos enviados desde el navegador.
+- Cobrar saldo reduce la deuda; al completarse se archiva como pagada. Anular exige contraseña administrativa reciente, motivo y turno original abierto; revierte una sola vez y conserva ticket/historial.
+- La compra online de membresías y la conciliación/idempotencia de Culqi siguen pendientes; ver bloqueos B01/B02 de la revisión.
+- La limpieza diaria/semanal destructiva está retirada: API autenticada responde 409 y no elimina saldos/historial. Borrar cliente o producto con registros financieros se rechaza. Las deudas anteriores a caja se conservan; no se convirtieron en ventas ni se dieron por cobradas.
+- Caja agrupa por fecha Lima y contabiliza pagos COMPLETED; pagos reversados no cuentan como ingresos. El registro de un pago bancario es manual y requiere confirmación del cajero; no implica aprobación del proveedor.
+- El lanzador de desarrollo solo carga .env.local y verifica PostgreSQL loopback. Correo queda en la bandeja local; escrituras externas de Culqi/S3 están bloqueadas en ese entorno.
 
 ## Archivos y contenido
 
 - Planes, historias, galería y productos son públicos para lectura.
 - Crear, editar o eliminar esos recursos requiere administrador.
 - `GET /api/plans` no escribe en la base de datos; usa fallbacks en memoria si no hay planes persistidos.
-- Las cargas aceptan únicamente los MIME y extensiones permitidos, hasta 5 MiB.
+- Avatar, galería, productos y carga general validan MIME/extensión y límite de 5 MiB; imágenes JPEG/PNG/WebP se decodifican y recodifican. PDF solo tiene comprobación de cabecera.
+- La carga directa de media de ejercicios mediante URL firmada tiene controles diferentes y requiere endurecimiento antes de habilitarla; no hereda el límite anterior (B10).
 - Los nombres y carpetas se normalizan antes de formar una clave S3.
 
 ## Respuestas y errores
@@ -51,6 +67,8 @@ servicios de infraestructura encapsulan base de datos y proveedores externos.
 - `403`: rol insuficiente.
 - `404`: recurso inexistente o no disponible.
 - `409`: conflicto de concurrencia, por ejemplo cambio de stock.
+- `428`: falta reautenticación administrativa reciente para una acción sensible.
+- `429`: límite de intentos alcanzado; respetar Retry-After.
 - `502/503`: proveedor externo falló o no está configurado.
 - `500`: error interno genérico; no se exponen stack traces, secretos ni respuestas privadas de proveedores.
 
@@ -61,3 +79,7 @@ servicios de infraestructura encapsulan base de datos y proveedores externos.
 - Mobile horizontal validado a 844×390.
 - Las rutas inicio, login, registro, tienda y check-in no deben producir scroll horizontal.
 - No se admiten violaciones Axe de impacto `critical` o `serious` en esas rutas.
+
+## Aceptación antes de operar
+
+Las [pruebas manuales](manual-acceptance-tests.md) están pendientes de ejecutar. La [revisión de seguridad](security-review-2026-10-02.md) registra fixes, evidencia automatizada, límites de la verificación y bloqueos de producción.

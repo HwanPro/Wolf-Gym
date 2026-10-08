@@ -1,12 +1,14 @@
+import { assertExternalWrites } from "@/server/security/external-writes";
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { authOptions } from "@/lib/auth-options";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { PrismaClient } from "@prisma/client";
+import prisma from "@/infrastructure/prisma/prisma";
 import { z } from "zod";
-
-const prisma = new PrismaClient();
+import { exerciseUploadSchema } from "@/server/files/exercise-upload-policy";
+import {issueExerciseUploadProof} from "@/server/files/exercise-object";
+import {randomUUID} from "node:crypto";
 
 const s3Client = new S3Client({
   region: process.env.AWS_REGION!,
@@ -17,24 +19,12 @@ const s3Client = new S3Client({
 });
 
 // Esquema de validación para presigned URL
-const presignSchema = z.object({
-  type: z.enum(["image", "video"]),
-  contentType: z.string().refine((type) => {
-    const allowedTypes = [
-      // Imágenes
-      "image/jpeg", "image/jpg", "image/png", "image/webp",
-      // Videos
-      "video/mp4", "video/webm", "video/mov", "video/avi"
-    ];
-    return allowedTypes.includes(type);
-  }, "Tipo de archivo no permitido"),
-  filename: z.string().min(1)
-});
+const presignSchema = exerciseUploadSchema;
 
 // POST - Generar presigned URL para subir media
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -43,11 +33,11 @@ export async function POST(
     }
 
     const body = await req.json();
-    const { type, contentType, filename } = presignSchema.parse(body);
+    const { type, contentType, filename, fileSize, checksumSHA256 } = presignSchema.parse(body);
 
     // Verificar que el ejercicio existe
     const exercise = await prisma.exercise.findUnique({
-      where: { id: params.id }
+      where: { id: (await params).id }
     });
 
     if (!exercise) {
@@ -59,10 +49,8 @@ export async function POST(
 
     // Generar nombre único para el archivo
     const fileExtension = filename.split(".").pop();
-    const uniqueFilename = `${Date.now()}-${Math.random()
-      .toString(36)
-      .substring(2)}.${fileExtension}`;
-    
+    const uniqueFilename = `${randomUUID()}.${fileExtension?.toLowerCase()}`;
+
     const folder = type === "image" ? "exercises/images" : "exercises/videos";
     const fileKey = `${folder}/${uniqueFilename}`;
 
@@ -71,19 +59,35 @@ export async function POST(
       Bucket: process.env.AWS_BUCKET_NAME!,
       Key: fileKey,
       ContentType: contentType,
+      ContentLength: fileSize,
+      ChecksumSHA256: checksumSHA256,
       Metadata: {
-        exerciseId: params.id,
+        exerciseId: (await params).id,
         uploadedBy: session.user.id!
       }
     });
 
-    const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+    if (process.env.WOLF_DISABLE_EXTERNAL_WRITES === "1") {
+      return NextResponse.json({ error: "La carga de archivos está deshabilitada en este entorno de prueba." }, { status: 503 });
+    }
+    assertExternalWrites();
+
+    const uploadUrl = await getSignedUrl(s3Client, command, {
+      expiresIn: 300,
+      signableHeaders: new Set(["content-length", "content-type"]),
+      unhoistableHeaders: new Set(["x-amz-checksum-sha256"]),
+    });
     const publicUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${fileKey}`;
+    const uploadToken=await issueExerciseUploadProof({ownerId:session.user.id!,exerciseId:(await params).id,fileKey,type,contentType,fileSize,checksumSHA256});
 
     return NextResponse.json({
       uploadUrl,
       publicUrl,
-      fileKey
+      uploadToken,
+      fileKey,
+      requiredHeaders: { "Content-Type": contentType, "x-amz-checksum-sha256": checksumSHA256 },
+      expectedBytes: fileSize,
+      expiresIn: 300,
     });
 
   } catch (error) {

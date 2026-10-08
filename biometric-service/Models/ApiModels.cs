@@ -29,7 +29,8 @@ public record CaptureResponse(
     [property: JsonPropertyName("image")] string? ImageB64,
     int Length,
     int Quality,
-    string? Message = null
+    string? Message = null,
+    string? Reason = null
 );
 
 public record EnrollRequest(

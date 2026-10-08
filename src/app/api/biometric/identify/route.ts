@@ -1,20 +1,29 @@
+import type { NextRequest } from "next/server";
+import { requireAdmin } from "@/server/auth/authorization";
 // app/api/biometric/identify/route.ts
 import { NextResponse } from "next/server";
 import prisma from "@/infrastructure/prisma/prisma";
+import { getMembershipStatus } from "@/domain/attendance/attendance-policy";
 
-// Separar bases por servicio: captura (C#) e identificación (Python)
+// Captura e identificación usan el mismo servicio y catálogo de huellas.
 const CAPTURE_BASE =
   process.env.BIOMETRIC_CAPTURE_BASE ||
   process.env.BIOMETRIC_BASE ||
   "http://127.0.0.1:8001";
 export const dynamic = "force-dynamic";
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
+  const authorization = await requireAdmin(req);
+  if (!authorization.authorized) return authorization.response;
+
   try {
     // 0) Leer body opcional con template (para clientes que ya capturan)
     type IdentifyBody = { template?: string | null; fingerprint?: string | null };
     const body = (await req.json().catch(() => ({}))) as IdentifyBody | undefined;
 
+    if ([body?.template, body?.fingerprint].some(value => value != null && (typeof value !== "string" || value.length > 2732))) {
+      return NextResponse.json({ ok: false, message: "Muestra de huella inválida" }, { status: 400 });
+    }
     let templateBase64: string | null = null;
     if (typeof body?.template === "string" && body.template.length > 0) {
       templateBase64 = body.template;
@@ -27,11 +36,13 @@ export async function POST(req: Request) {
       await fetch(`${CAPTURE_BASE}/device/open`, {
         method: "POST",
         cache: "no-store",
+        signal: AbortSignal.timeout(15_000),
       }).catch(() => null);
 
       const cap = await fetch(`${CAPTURE_BASE}/capture`, {
         method: "POST",
         cache: "no-store",
+        signal: AbortSignal.timeout(35_000),
       });
       const capData = (await cap.json().catch(() => ({}))) as {
         ok?: boolean;
@@ -49,12 +60,18 @@ export async function POST(req: Request) {
           );
         }
         return NextResponse.json(
-          { ok: false, message: capData?.message || "No se pudo capturar" },
+          { ok: false, message: "No se pudo capturar la huella" },
           { status: 502 }
         );
       }
       templateBase64 = capData.template as string;
-      
+
+    }
+
+    // El SDK acepta plantillas de hasta 2048 bytes, no imágenes ni texto arbitrario.
+    if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(templateBase64) ||
+        Buffer.from(templateBase64, "base64").length > 2048) {
+      return NextResponse.json({ ok: false, match: false, message: "Muestra de huella inválida" }, { status: 400 });
     }
 
     // 2) Identificar en el servicio C# (1:N)
@@ -63,6 +80,7 @@ export async function POST(req: Request) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ templateB64: templateBase64 }),
       cache: "no-store",
+        signal: AbortSignal.timeout(15_000),
     });
     const identifyData = (await identifyResp.json().catch(() => ({}))) as {
       ok?: boolean;
@@ -74,12 +92,26 @@ export async function POST(req: Request) {
       message?: string;
     };
 
-    if (!identifyResp.ok || !identifyData?.ok || !identifyData?.match) {
+    if (!identifyResp.ok || identifyData?.ok !== true) {
+      const ambiguous = identifyData?.message === "Ambiguous match detected";
+      return NextResponse.json(
+        { ok: false, match: false,
+          reason: ambiguous ? "AMBIGUOUS_MATCH" : "BIOMETRIC_UNAVAILABLE",
+          message: ambiguous
+            ? "La lectura es ambigua. Retira el dedo y vuelve a colocarlo."
+            : "El servicio biométrico no pudo comparar las huellas. Revisa su conexión a la base de datos y al lector." },
+        { status: ambiguous ? 409 : 503 }
+      );
+    }
+    if (typeof identifyData.match !== "boolean") {
+      return NextResponse.json({ ok: false, match: false, message: "Respuesta inválida del servicio biométrico" }, { status: 502 });
+    }
+    if (!identifyData.match) {
       return NextResponse.json(
         {
           ok: true,
           match: false,
-          message: identifyData?.message || "Huella no registrada en ningún perfil",
+          message: "La lectura no coincide con las huellas registradas. Prueba nuevamente con el dedo registrado.",
         },
         { status: 200 }
       );
@@ -94,11 +126,11 @@ export async function POST(req: Request) {
     if (!bestMatch?.userId) {
       return NextResponse.json(
         {
-          ok: true,
+          ok: false,
           match: false,
-          message: "Huella no registrada en ningún perfil",
+          message: "El servicio biométrico devolvió una identificación incompleta",
         },
-        { status: 200 }
+        { status: 502 }
       );
     }
 
@@ -119,11 +151,12 @@ export async function POST(req: Request) {
     if (!user) {
       return NextResponse.json(
         {
-          ok: true,
+          ok: false,
           match: false,
-          message: "Usuario no encontrado en la base de datos",
+          reason: "DATABASE_MISMATCH",
+          message: "La huella corresponde a un usuario ausente en la base de datos de la aplicación. Revisa que ambos servicios usen la misma base.",
         },
-        { status: 200 }
+        { status: 409 }
       );
     }
 
@@ -141,11 +174,8 @@ export async function POST(req: Request) {
       `${profile?.profile_first_name || ""} ${profile?.profile_last_name || ""}`.trim() ||
       `${user.firstName} ${user.lastName}`.trim() ||
       user.username;
-    const today = new Date();
-    const floorToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    const membershipExpired = Boolean(
-      profile?.profile_end_date && profile.profile_end_date < floorToday
-    );
+    const membership = getMembershipStatus(profile?.profile_end_date);
+    const membershipExpired = membership.expired;
 
     return NextResponse.json(
       {
@@ -159,7 +189,9 @@ export async function POST(req: Request) {
         membershipExpired,
         profileEndDate: profile?.profile_end_date ?? null,
         message: membershipExpired
-          ? "Usuario identificado con membresía expirada"
+          ? membership.daysLeft === null
+            ? "Usuario identificado sin membresía vigente; debe asignarse antes de ingresar"
+            : "Usuario identificado con membresía expirada"
           : profile
             ? "Usuario identificado correctamente"
             : "Usuario identificado sin perfil de cliente",
@@ -169,8 +201,8 @@ export async function POST(req: Request) {
   } catch {
     console.error("No se pudo completar la identificación biométrica.");
     return NextResponse.json(
-      { ok: false, message: "No se pudo completar la identificación biométrica." },
-      { status: 500 }
+      { ok: false, match: false, message: "No se pudo completar la identificación biométrica. Comprueba que el servicio y la base de datos estén disponibles." },
+      { status: 503 }
     );
   }
 }

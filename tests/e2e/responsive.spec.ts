@@ -6,7 +6,7 @@ const routes = [
   { path: "/auth/login", landmark: /Inicia sesión/i },
   { path: "/auth/register", landmark: /Crear cuenta|Regístrate|Registro/i },
   { path: "/products/public", landmark: /Productos|Tienda/i },
-  { path: "/check-in", landmark: /Check.?in|Control de acceso|Wolf Gym/i },
+  { path: "/check-in", landmark: /Inicia sesión/i },
 ];
 
 for (const route of routes) {

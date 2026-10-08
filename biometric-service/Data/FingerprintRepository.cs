@@ -3,6 +3,8 @@ using WolfGym.BiometricService.Models;
 
 namespace WolfGym.BiometricService.Data;
 
+public enum FingerprintSaveResult { Saved, UserNotFound, Duplicate }
+
 public class FingerprintRepository
 {
     private readonly string _connectionString;
@@ -12,7 +14,16 @@ public class FingerprintRepository
     {
         _connectionString = configuration.GetConnectionString("DefaultConnection") 
             ?? throw new InvalidOperationException("Connection string not found");
+        if (string.IsNullOrWhiteSpace(_connectionString)) throw new InvalidOperationException("Biometric database not configured");
         _logger = logger;
+    }
+
+    public async Task CheckReadyAsync(CancellationToken cancellationToken)
+    {
+        await using var connection = new NpgsqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var command = new NpgsqlCommand("SELECT 1 FROM fingerprints LIMIT 1", connection);
+        await command.ExecuteScalarAsync(cancellationToken);
     }
 
     /// <summary>
@@ -42,7 +53,7 @@ public class FingerprintRepository
     /// <summary>
     /// Guarda o actualiza una huella digital
     /// </summary>
-    public async Task<bool> SaveFingerprintAsync(FingerprintRecord fingerprint)
+    public async Task<FingerprintSaveResult> SaveFingerprintAsync(FingerprintRecord fingerprint, Func<byte[], bool> matches)
     {
         try
         {
@@ -50,11 +61,26 @@ public class FingerprintRepository
             if (!await UserExistsAsync(fingerprint.UserId))
             {
                 _logger.LogWarning("User {UserId} does not exist", fingerprint.UserId);
-                return false;
+                return FingerprintSaveResult.UserNotFound;
             }
 
             await using var connection = new NpgsqlConnection(_connectionString);
             await connection.OpenAsync();
+
+            await using var transaction = await connection.BeginTransactionAsync();
+            // Serialize all fingerprint writes, including writes from another service instance.
+            // Read fresh templates under the lock; comparing a cached list permits duplicate races.
+            await using (var tableLock = new NpgsqlCommand("LOCK TABLE fingerprints IN SHARE ROW EXCLUSIVE MODE", connection, transaction))
+                await tableLock.ExecuteNonQueryAsync();
+            await using (var duplicates = new NpgsqlCommand("SELECT template FROM fingerprints WHERE user_id <> @userId", connection, transaction))
+            {
+                duplicates.Parameters.AddWithValue("userId", fingerprint.UserId);
+                await using var reader = await duplicates.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    if (matches((byte[])reader.GetValue(0))) return FingerprintSaveResult.Duplicate;
+                }
+            }
 
             const string sql = @"
                 INSERT INTO fingerprints 
@@ -70,7 +96,7 @@ public class FingerprintRepository
                     template_size = EXCLUDED.template_size,
                     updated_at = EXCLUDED.updated_at";
 
-            await using var cmd = new NpgsqlCommand(sql, connection);
+            await using var cmd = new NpgsqlCommand(sql, connection, transaction);
             cmd.Parameters.AddWithValue("id", fingerprint.Id);
             cmd.Parameters.AddWithValue("userId", fingerprint.UserId);
             cmd.Parameters.AddWithValue("fingerIndex", fingerprint.FingerIndex);
@@ -83,12 +109,13 @@ public class FingerprintRepository
             cmd.Parameters.AddWithValue("updatedAt", DateTime.UtcNow);
 
             var rows = await cmd.ExecuteNonQueryAsync();
+            await transaction.CommitAsync();
             
             _logger.LogInformation(
                 "Fingerprint saved for user {UserId}, finger {FingerIndex}", 
                 fingerprint.UserId, fingerprint.FingerIndex);
             
-            return rows > 0;
+            return rows > 0 ? FingerprintSaveResult.Saved : FingerprintSaveResult.UserNotFound;
         }
         catch (Exception ex)
         {

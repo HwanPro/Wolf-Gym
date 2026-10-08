@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { authOptions } from "@/lib/auth-options";
 import { PrismaClient } from "@prisma/client";
 import { z } from "zod";
 
@@ -35,7 +35,7 @@ const updateExerciseSchema = z.object({
 // GET - Obtener ejercicio por ID
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -44,7 +44,7 @@ export async function GET(
     }
 
     const exercise = await prisma.exercise.findUnique({
-      where: { id: params.id },
+      where: { id: (await params).id },
       include: {
         media: {
           orderBy: { order: 'asc' }
@@ -90,7 +90,7 @@ export async function GET(
 // PUT - Actualizar ejercicio (solo admin)
 export async function PUT(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -103,7 +103,7 @@ export async function PUT(
 
     // Verificar que el ejercicio existe
     const existingExercise = await prisma.exercise.findUnique({
-      where: { id: params.id }
+      where: { id: (await params).id }
     });
 
     if (!existingExercise) {
@@ -141,7 +141,7 @@ export async function PUT(
     }
 
     await prisma.exercise.update({
-      where: { id: params.id },
+      where: { id: (await params).id },
       data: updateData
     });
 
@@ -166,7 +166,7 @@ export async function PUT(
 // DELETE - Eliminar ejercicio (solo admin)
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -176,7 +176,7 @@ export async function DELETE(
 
     // Verificar que el ejercicio existe
     const existingExercise = await prisma.exercise.findUnique({
-      where: { id: params.id }
+      where: { id: (await params).id }
     });
 
     if (!existingExercise) {
@@ -188,7 +188,7 @@ export async function DELETE(
 
     // Verificar si el ejercicio está siendo usado en rutinas
     const routineItemsCount = await prisma.routineItem.count({
-      where: { exerciseId: params.id }
+      where: { exerciseId: (await params).id }
     });
 
     if (routineItemsCount > 0) {
@@ -200,10 +200,10 @@ export async function DELETE(
 
     // Eliminar ejercicio (las relaciones se eliminan en cascada)
     await prisma.exercise.delete({
-      where: { id: params.id }
+      where: { id: (await params).id }
     });
 
-    return NextResponse.json(null, { status: 204 });
+    return new NextResponse(null, { status: 204 });
 
   } catch (error) {
     console.error("Error al eliminar ejercicio:", error);

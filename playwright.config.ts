@@ -1,4 +1,11 @@
 import { defineConfig } from "@playwright/test";
+import fs from "node:fs";
+import { loadLocalEnvironment } from "./scripts/lib/local-database.mjs";
+loadLocalEnvironment();
+const fixture = JSON.parse(fs.readFileSync(".local/test-accounts.json", "utf8"));
+const admin = fixture.accounts.find((account: { role: string }) => account.role === "admin");
+process.env.E2E_ADMIN_USERNAME = admin.username;
+process.env.E2E_ADMIN_PASSWORD = admin.password;
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -36,7 +43,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "npx cross-env NEXT_DIST_DIR=.next-e2e next dev -p 3100",
+    command: "node scripts/local-next.mjs dev 3100 .next-e2e",
     url: "http://127.0.0.1:3100",
     reuseExistingServer: true,
     timeout: 120_000,

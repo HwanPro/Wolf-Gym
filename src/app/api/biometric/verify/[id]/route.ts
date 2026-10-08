@@ -9,7 +9,7 @@ const BIOMETRIC_BASE =
   process.env.BIOMETRIC_BASE ||
   process.env.NEXT_PUBLIC_BIOMETRIC_BASE ||
   "http://127.0.0.1:8001";
-const TIMEOUT_MS = 15_000;
+const TIMEOUT_MS = 35_000;
 
 function timeoutFetch(input: RequestInfo | URL, init?: RequestInit, ms = TIMEOUT_MS) {
   const controller = new AbortController();
@@ -98,13 +98,13 @@ export async function POST(
       match?: boolean;
     };
 
-    if (!verifyRes.ok) {
+    if (!verifyRes.ok || verifyData.ok !== true || typeof verifyData.match !== "boolean") {
       return NextResponse.json(
         {
           ok: false,
           message: "No se pudo completar la verificación biométrica.",
         },
-        { status: verifyRes.status || 500 }
+        { status: 503 }
       );
     }
 

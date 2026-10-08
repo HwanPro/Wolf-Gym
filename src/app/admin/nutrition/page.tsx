@@ -17,6 +17,9 @@ type PlanMode = "QUANTIFIED" | "PORTIONS" | "QUALITATIVE" | "HYBRID";
 type EnergyMode = "CALCULATED" | "MANUAL" | "NOT_TRACKED";
 
 interface ItemDraft {
+  source?: Record<string, unknown>;
+  isAlternative?: boolean;
+  alternativeGroup?: string;
   key: string;
   name: string;
   quantity: string;
@@ -26,6 +29,7 @@ interface ItemDraft {
 }
 
 interface MealDraft {
+  source?: Record<string, unknown>;
   key: string;
   name: string;
   time: string;
@@ -33,6 +37,7 @@ interface MealDraft {
 }
 
 interface DayDraft {
+  source?: Record<string, unknown>;
   key: string;
   dayIndex: number;
   label: string;
@@ -93,6 +98,9 @@ function optionalNumber(value: string) {
 }
 
 export default function AdminNutritionPage() {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [versionSource, setVersionSource] = useState<Record<string, unknown>>({});
+  const [assignments, setAssignments] = useState<Array<{id: string; status: string; user: {firstName: string | null; lastName: string | null}; version: {version: number; plan: {name: string}}}>>([]);
   const [plans, setPlans] = useState<PlanSummary[]>([]);
   const [clients, setClients] = useState<ClientOption[]>([]);
   const [loading, setLoading] = useState(true);
@@ -124,9 +132,10 @@ export default function AdminNutritionPage() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [plansResponse, clientsResponse] = await Promise.all([
+      const [plansResponse, clientsResponse, assignmentsResponse] = await Promise.all([
         fetch("/api/admin/nutrition/plans", { cache: "no-store" }),
         fetch("/api/clients", { cache: "no-store" }),
+        fetch("/api/admin/nutrition/assignments", {cache: "no-store"}),
       ]);
       const planData = await plansResponse.json().catch(() => ({}));
       const clientData = await clientsResponse.json().catch(() => []);
@@ -134,6 +143,8 @@ export default function AdminNutritionPage() {
         throw new Error(planData.error || "No se pudieron cargar los planes alimentarios");
       }
       if (!clientsResponse.ok) throw new Error("No se pudo cargar la lista de clientes");
+      if (!assignmentsResponse.ok) throw new Error("No se pudieron cargar las asignaciones");
+      setAssignments((await assignmentsResponse.json()).items ?? []);
       setPlans(planData.items ?? []);
       setClients((clientData ?? []).filter((client: ClientOption) => client.user?.role === "client"));
     } catch (error) {
@@ -174,15 +185,37 @@ export default function AdminNutritionPage() {
     }));
   }
 
+  async function editPlan(id: string) {
+    try {
+      const response = await fetch(`/api/admin/nutrition/plans/${id}`);
+      if (!response.ok) throw new Error('No se pudo cargar el plan');
+      const plan = await response.json(), version = plan.versions[0];
+      setEditingId(id); setName(plan.name); setDescription(plan.description ?? ''); setObjective(plan.objective);
+      setVersionSource(version); setMode(version.mode); setEnergyMode(version.energyMode);
+      setTargetCalories(version.targetCalories?.toString() ?? ''); setDurationWeeks(version.durationWeeks?.toString() ?? '');
+      setProfessionalName(version.professionalName ?? ''); setProfessionalRegistration(version.professionalRegistration ?? ''); setProfessionalNotes(version.professionalNotes ?? '');
+      setDays(version.days.map((day: DayDraft) => ({...day, source: {...day}, key: key(), meals: day.meals.map((meal: MealDraft & {suggestedTime?: string}) => ({...meal, source: {...meal}, key: key(), time: meal.suggestedTime ?? '', items: meal.items.map(item => ({...item, source: {...item}, key: key(), quantity: item.quantity?.toString() ?? '', unit: item.unit ?? 'GRAM', notes: item.notes ?? '', displayAmount: item.displayAmount ?? ''}))}))})));
+      setMessage({tone: 'ok', text: 'Editando una nueva versión. Las asignaciones existentes mantienen su versión.'});
+    } catch (error) { setMessage({tone: 'error', text: error instanceof Error ? error.message : 'Error de carga'}); }
+  }
+  async function changeAssignment(id: string, status: string) {
+    setSaving(true);
+    try { const response = await fetch(`/api/admin/nutrition/assignments/${id}`, {method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({status})});
+      const data = await response.json(); if (!response.ok) throw new Error(data.error);
+      await loadData(); setMessage({tone: 'ok', text: 'Estado de asignación actualizado.'});
+    } catch (error) { setMessage({tone: 'error', text: error instanceof Error ? error.message : 'No se actualizó el estado'}); }
+    finally { setSaving(false); }
+  }
   async function createPlan(event: FormEvent) {
     event.preventDefault();
     setSaving(true);
     setMessage(null);
     try {
-      const response = await fetch("/api/admin/nutrition/plans", {
+      const response = await fetch(editingId ? `/api/admin/nutrition/plans/${editingId}` : "/api/admin/nutrition/plans", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          ...versionSource,
           name,
           description: description || undefined,
           objective,
@@ -195,14 +228,18 @@ export default function AdminNutritionPage() {
           professionalNotes: professionalNotes || undefined,
           publish: true,
           days: days.map((day) => ({
+            ...day.source,
             dayIndex: day.dayIndex,
             label: day.label || dayNames[day.dayIndex],
             meals: day.meals.map((meal, mealIndex) => ({
+              ...meal.source,
               name: meal.name,
               suggestedTime: meal.time || undefined,
               sortOrder: mealIndex,
               items: meal.items.map((item, itemIndex) => ({
+                ...item.source,
                 name: item.name,
+                isAlternative: Boolean(item.isAlternative), alternativeGroup: item.alternativeGroup || undefined,
                 quantity: optionalNumber(item.quantity),
                 unit: item.quantity ? item.unit : undefined,
                 displayAmount: item.displayAmount || undefined,
@@ -211,11 +248,12 @@ export default function AdminNutritionPage() {
               })),
             })),
           })),
-        }),
+        }, (_field, value) => value === null ? undefined : value),
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || "No se pudo crear el plan");
       setMessage({ tone: "ok", text: `Plan “${result.name}” creado y publicado.` });
+      setEditingId(null); setVersionSource({});
       setName("");
       setDescription("");
       setDays([newDay()]);
@@ -295,16 +333,17 @@ export default function AdminNutritionPage() {
                 <p className="wolf-subtitle">Una publicación crea una versión inmutable lista para asignar.</p>
               </div>
               <button className="wolf-button wolf-button-primary" disabled={saving} title="Guardar y publicar este plan">
-                <Save className="h-4 w-4" /> {saving ? "Guardando" : "Publicar plan"}
+                <Save className="h-4 w-4" /> {saving ? "Guardando" : editingId ? "Guardar nueva versión" : "Publicar plan"}
               </button>
             </div>
 
+            {editingId && <button className="wolf-button" type="button" disabled={saving} onClick={() => {setEditingId(null); setVersionSource({}); setName(''); setDescription(''); setDays([newDay()]);}}>Cancelar edición</button>}
             <div className="grid gap-4 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-4">
               <Field label="Nombre" className="sm:col-span-2">
-                <input className="wolf-control" value={name} onChange={(event) => setName(event.target.value)} placeholder="Plan de mantenimiento" required />
+                <input readOnly={Boolean(editingId)} className="wolf-control" value={name} onChange={(event) => setName(event.target.value)} placeholder="Plan de mantenimiento" required />
               </Field>
               <Field label="Objetivo">
-                <select className="wolf-control" value={objective} onChange={(event) => setObjective(event.target.value)}>
+                <select disabled={Boolean(editingId)} className="wolf-control" value={objective} onChange={(event) => setObjective(event.target.value)}>
                   <option value="FAT_LOSS">Pérdida de grasa</option><option value="MAINTENANCE">Mantenimiento</option>
                   <option value="MUSCLE_GAIN">Ganancia muscular</option><option value="PERFORMANCE">Rendimiento</option>
                   <option value="HEALTH_HABITS">Hábitos saludables</option><option value="CUSTOM">Personalizado</option>
@@ -316,7 +355,7 @@ export default function AdminNutritionPage() {
                 </select>
               </Field>
               <Field label="Descripción" className="sm:col-span-2 lg:col-span-4">
-                <textarea className="wolf-control min-h-20 py-2" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Contexto y alcance general del plan" />
+                <textarea readOnly={Boolean(editingId)} className="wolf-control min-h-20 py-2" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Contexto y alcance general del plan" />
               </Field>
               <Field label="Control energético">
                 <select className="wolf-control" value={energyMode} onChange={(event) => setEnergyMode(event.target.value as EnergyMode)}>
@@ -372,6 +411,7 @@ export default function AdminNutritionPage() {
                           <div className="mt-3 space-y-2">
                             {meal.items.map((item) => (
                               <div key={item.key} className="grid gap-2 md:grid-cols-[minmax(170px,1.4fr)_100px_135px_minmax(150px,1fr)_40px]">
+                                <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={Boolean(item.isAlternative)} onChange={event => updateItem(day.key, meal.key, item.key, {isAlternative: event.target.checked})} /> Alternativa</label>
                                 <input className="wolf-control" value={item.name} onChange={(event) => updateItem(day.key, meal.key, item.key, { name: event.target.value })} placeholder="Alimento o preparación" required aria-label="Alimento" />
                                 <input className="wolf-control" type="number" min="0.01" step="0.01" value={item.quantity} onChange={(event) => updateItem(day.key, meal.key, item.key, { quantity: event.target.value })} placeholder="Cant." aria-label="Cantidad" />
                                 <select className="wolf-control" value={item.unit} onChange={(event) => updateItem(day.key, meal.key, item.key, { unit: event.target.value })} aria-label="Unidad">
@@ -415,11 +455,12 @@ export default function AdminNutritionPage() {
               <div className="divide-y divide-[var(--wolf-app-border)]">
                 {plans.map((plan) => {
                   const version = plan.versions[0];
-                  return <div key={plan.id} className="p-4"><div className="flex items-start justify-between gap-3"><div><strong>{plan.name}</strong><p className="wolf-subtitle mt-1">{version ? `${modeLabels[version.mode]} · ${version._count.days} días` : "Sin publicar"}</p></div>{version && <span className="wolf-badge">v{version.version}</span>}</div>{version && <p className="mt-2 text-xs text-[var(--wolf-app-faint)]">{version._count.assignments} asignaciones{version.targetCalories ? ` · ${version.targetCalories} kcal` : " · sin conteo energético"}</p>}</div>;
+                  return <div key={plan.id} className="p-4"><div className="flex items-start justify-between gap-3"><div><strong>{plan.name}</strong><p className="wolf-subtitle mt-1">{version ? `${modeLabels[version.mode]} · ${version._count.days} días` : "Sin publicar"}</p></div>{version && <span className="wolf-badge">v{version.version}</span>}</div>{version && <p className="mt-2 text-xs text-[var(--wolf-app-faint)]">{version._count.assignments} asignaciones{version.targetCalories ? ` · ${version.targetCalories} kcal` : " · sin conteo energético"}</p>}<button type="button" className="wolf-button mt-2" disabled={saving} onClick={() => void editPlan(plan.id)}>Nueva versión</button></div>;
                 })}
                 {!loading && plans.length === 0 && <p className="wolf-empty p-5">Todavía no hay planes publicados.</p>}
               </div>
             </section>
+<section className="wolf-panel p-4"><h2 className="wolf-panel-title">Asignaciones e historial</h2>{assignments.map(assignment => <article key={assignment.id} className="border-b border-[var(--wolf-app-border)] py-3"><p>{assignment.user.firstName} {assignment.user.lastName} · {assignment.version.plan.name} · v{assignment.version.version} · {assignment.status}</p><div className="flex flex-wrap gap-2 mt-2">{assignment.status === 'ACTIVE' && <button type="button" className="wolf-button" disabled={saving} onClick={() => void changeAssignment(assignment.id, 'PAUSED')}>Pausar</button>}{assignment.status === 'PAUSED' && <button type="button" className="wolf-button" disabled={saving} onClick={() => void changeAssignment(assignment.id, 'ACTIVE')}>Reactivar</button>}{assignment.status !== 'COMPLETED' && <button type="button" className="wolf-button" disabled={saving} onClick={() => void changeAssignment(assignment.id, 'COMPLETED')}>Finalizar</button>}</div></article>)}</section>
           </aside>
         </section>
       </div>
