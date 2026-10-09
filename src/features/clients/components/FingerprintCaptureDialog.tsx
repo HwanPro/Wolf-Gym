@@ -132,7 +132,7 @@ export default function FingerprintCaptureDialog({
         onInteractOutside={(event) => event.preventDefault()}
       >
         <div className="p-5 sm:p-6">
-          {onCancel && isBusy && (
+          {onCancel && (phase === "ready" || phase === "capturing") && (
             <button
               type="button"
               onClick={onCancel}

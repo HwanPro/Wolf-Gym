@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import type { NextRequest } from "next/server";
-import { getToken } from "next-auth/jwt";
+import { requestToken } from "@/server/auth/authorization";
 
 export const SENSITIVE_ADMIN_COOKIE = "wolf-sensitive-admin";
 export const SENSITIVE_ADMIN_TTL_SECONDS = 10 * 60;
@@ -15,10 +15,11 @@ function signature(payload: string) {
   return createHmac("sha256", getSecret()).update(payload).digest("base64url");
 }
 
-export function createSensitiveAdminToken(userId: string, now = Date.now()) {
+export function createSensitiveAdminToken(userId: string, now = Date.now(), credentialVersion?: string) {
   const payload = Buffer.from(
     JSON.stringify({
       userId,
+      credentialVersion,
       expiresAt: now + SENSITIVE_ADMIN_TTL_SECONDS * 1000,
     }),
   ).toString("base64url");
@@ -28,9 +29,12 @@ export function createSensitiveAdminToken(userId: string, now = Date.now()) {
 export function isValidSensitiveAdminToken(
   value: string | undefined,
   userId: string,
+  credentialVersion?: string,
 ) {
-  if (!value) return false;
-  const [payload, providedSignature] = value.split(".");
+  if (!value || value.length > 2048) return false;
+  const parts = value.split(".");
+  if (parts.length !== 2) return false;
+  const [payload, providedSignature] = parts;
   if (!payload || !providedSignature) return false;
   const expectedSignature = signature(payload);
   const expected = Buffer.from(expectedSignature);
@@ -47,18 +51,16 @@ export function isValidSensitiveAdminToken(
     ) as {
       userId?: string;
       expiresAt?: number;
+      credentialVersion?: string;
     };
-    return data.userId === userId && Number(data.expiresAt) > Date.now();
+    return data.userId === userId && data.credentialVersion === credentialVersion && Number.isFinite(data.expiresAt) && Number(data.expiresAt) > Date.now();
   } catch {
     return false;
   }
 }
 
 export async function getSensitiveAdminAccess(request: NextRequest) {
-  const token = await getToken({
-    req: request,
-    secret: process.env.NEXTAUTH_SECRET,
-  });
+  const token = await requestToken(request);
   if (!token)
     return { authorized: false as const, status: 401, error: "No autorizado" };
   if (token.role !== "admin" || !token.id) {
@@ -69,7 +71,7 @@ export async function getSensitiveAdminAccess(request: NextRequest) {
     };
   }
   const sensitiveToken = request.cookies.get(SENSITIVE_ADMIN_COOKIE)?.value;
-  if (!isValidSensitiveAdminToken(sensitiveToken, String(token.id))) {
+  if (!isValidSensitiveAdminToken(sensitiveToken, String(token.id), String(token.credentialVersion))) {
     return {
       authorized: false as const,
       status: 428,

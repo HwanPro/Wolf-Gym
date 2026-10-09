@@ -20,41 +20,20 @@ type ActivityLog = {
 function CheckInDisplayContent() {
   const searchParams = useSearchParams();
   const room = searchParams.get("room") || "default";
-  
+
   const [activityLog, setActivityLog] = useState<ActivityLog[]>([]);
   const [currentUser, setCurrentUser] = useState<ActivityLog | null>(null);
   const [loading, setLoading] = useState(true);
-
-  // Cargar historial del día desde localStorage al montar
-  useEffect(() => {
-    const today = new Date().toDateString();
-    const savedLog = localStorage.getItem(`activityLog_${today}`);
-    if (savedLog) {
-      try {
-        const parsedLog = JSON.parse(savedLog).map((item: ActivityLog & { timestamp: string }) => ({
-          ...item,
-          timestamp: new Date(item.timestamp)
-        }));
-        setActivityLog(parsedLog);
-      } catch (error) {
-        console.error("Error al cargar historial del día:", error);
-      }
-    }
-  }, []);
-
-  // Guardar historial del día en localStorage cuando cambie
-  useEffect(() => {
-    if (activityLog.length > 0) {
-      const today = new Date().toDateString();
-      localStorage.setItem(`activityLog_${today}`, JSON.stringify(activityLog));
-    }
-  }, [activityLog]);
+  const [historyError, setHistoryError] = useState(false);
 
   // Cargar historial inicial
   useEffect(() => {
+    let stopped = false;
+    let inFlight = false;
     const loadHistory = async () => {
+      if (inFlight) return;
+      inFlight = true;
       try {
-        setLoading(true);
         const response = await fetch(`/api/check-in/history?room=${encodeURIComponent(room)}&limit=50`);
         if (response.ok) {
           const data = await response.json();
@@ -63,29 +42,35 @@ function CheckInDisplayContent() {
               ...item,
               timestamp: new Date(item.timestamp),
             }));
-            setActivityLog(processedLog);
+            if (!stopped) {
+              setActivityLog(processedLog);
+              setHistoryError(false);
+            }
             console.log(`Historial cargado: ${processedLog.length} registros`);
           }
-        }
+        } else if (!stopped) setHistoryError(true);
       } catch (error) {
         console.error('Error cargando historial:', error);
+        if (!stopped) setHistoryError(true);
       } finally {
-        setLoading(false);
+        if (!stopped) setLoading(false);
+        inFlight = false;
       }
     };
 
     loadHistory();
+    const timer = setInterval(loadHistory, 5000);
+    return () => { stopped = true; clearInterval(timer); };
   }, [room]);
 
   // Escuchar eventos de marcación en tiempo real
   useEffect(() => {
     const eventSource = new EventSource(`/api/check-in/stream?room=${encodeURIComponent(room)}`);
-    
+
     eventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        console.log('Evento recibido:', data);
-        
+
         if (data.type === 'checkin' || data.type === 'checkout') {
           const logEntry: ActivityLog = {
             id: `${data.userId}-${data.type}-${Date.now()}`,
@@ -100,21 +85,19 @@ function CheckInDisplayContent() {
             profileId: data.profileId,
             minutesOpen: data.minutesOpen,
           };
-          
-          console.log('Nuevo registro de actividad:', logEntry);
-          
+
           // Mostrar usuario actual por 5 segundos
           setCurrentUser(logEntry);
           setTimeout(() => setCurrentUser(null), 5000);
-          
+
           // Agregar al log (evitar duplicados)
           setActivityLog(prev => {
-            const exists = prev.some(item => 
-              item.profileId === logEntry.profileId && 
+            const exists = prev.some(item =>
+              item.profileId === logEntry.profileId &&
               item.action === logEntry.action &&
               Math.abs(item.timestamp.getTime() - logEntry.timestamp.getTime()) < 2000
             );
-            
+
             if (!exists) {
               return [logEntry, ...prev.slice(0, 49)];
             }
@@ -151,6 +134,7 @@ function CheckInDisplayContent() {
         </p>
       </div>
 
+      {historyError && <p role="alert" className="mb-4 text-center text-amber-300">No se pudo actualizar el historial. Se reintentará automáticamente.</p>}
       {/* Indicador de carga */}
       {loading && (
         <div className="mb-8 flex justify-center">
@@ -177,8 +161,8 @@ function CheckInDisplayContent() {
                 </h2>
                 <div className="flex items-center gap-4 mb-3">
                   <span className={`px-4 py-2 rounded-full text-lg font-semibold ${
-                    currentUser.action === "checkin" 
-                      ? "bg-green-600 text-white" 
+                    currentUser.action === "checkin"
+                      ? "bg-green-600 text-white"
                       : "bg-red-600 text-white"
                   }`}>
                     {currentUser.action === "checkin" ? "✅ ENTRADA" : "🚪 SALIDA"}
@@ -226,7 +210,7 @@ function CheckInDisplayContent() {
         <h3 className="text-2xl font-bold text-yellow-400 mb-4 text-center">
           📊 Actividad Reciente
         </h3>
-        
+
         {activityLog.length === 0 ? (
           <div className="text-center text-gray-500 py-8">
             <div className="text-4xl mb-4">📝</div>
@@ -249,11 +233,11 @@ function CheckInDisplayContent() {
                     </div>
                   </div>
                 </div>
-                
+
                 <div className="flex items-center justify-between mb-2">
                   <span className={`px-2 py-1 rounded text-xs font-semibold ${
-                    log.action === "checkin" 
-                      ? "bg-green-600/20 text-green-400" 
+                    log.action === "checkin"
+                      ? "bg-green-600/20 text-green-400"
                       : "bg-red-600/20 text-red-400"
                   }`}>
                     {log.action === "checkin" ? "Entrada" : "Salida"}
@@ -264,7 +248,7 @@ function CheckInDisplayContent() {
                     </span>
                   )}
                 </div>
-                
+
                 {log.totalDebt > 0 && (
                   <div className="text-xs text-red-400">
                     Deuda: S/. {log.totalDebt.toFixed(2)}

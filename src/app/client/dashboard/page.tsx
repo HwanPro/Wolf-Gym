@@ -6,6 +6,7 @@ import { signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import useSWR from "swr";
+import { getMembershipStatus } from "@/domain/attendance/attendance-policy";
 import { Button } from "@/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/ui/tabs";
 import ProfileModal from "@/ui/components/ProfileModal";
@@ -92,16 +93,13 @@ function formatDate(date?: Date | string | null) {
   if (!date) return "Sin fecha";
   const parsed = typeof date === "string" ? new Date(date) : date;
   if (Number.isNaN(parsed.getTime())) return "Sin fecha";
-  return new Intl.DateTimeFormat("es-PE", { day: "2-digit", month: "short", year: "numeric" }).format(parsed);
+  const dateOnly = parsed.getUTCHours() === 0 && parsed.getUTCMinutes() === 0 && parsed.getUTCSeconds() === 0;
+  return new Intl.DateTimeFormat("es-PE", { day: "2-digit", month: "short", year: "numeric", timeZone: dateOnly ? "UTC" : "America/Lima" }).format(parsed);
 }
 
 function getDaysRemaining(endDate: Date | null) {
   if (!endDate) return 0;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const end = new Date(endDate);
-  end.setHours(0, 0, 0, 0);
-  return Math.max(0, Math.ceil((end.getTime() - today.getTime()) / 86_400_000));
+  return getMembershipStatus(endDate).daysLeft ?? 0;
 }
 
 function getInitials(firstName?: string, lastName?: string) {
@@ -135,17 +133,16 @@ export default function ClientDashboard() {
   }, [error, router]);
 
   const subscription: SubscriptionState = useMemo(() => {
+    if (clientData?.profile?.profile_end_date) {
+      const startDate = clientData.profile.profile_start_date ? new Date(clientData.profile.profile_start_date) : null;
+      const endDate = new Date(clientData.profile.profile_end_date);
+      return { active: !getMembershipStatus(endDate).expired, plan: clientData.profile.profile_plan || "Plan activo", startDate, endDate };
+    }
     if (clientData?.memberships?.length) {
       const membership = clientData.memberships[0];
       const startDate = new Date(membership.assignedAt);
-      const endDate = new Date(startDate);
-      endDate.setDate(endDate.getDate() + membership.membership.membership_duration);
-      return { active: endDate.getTime() >= Date.now(), plan: membership.membership.membership_type, startDate, endDate };
-    }
-    if (clientData?.profile?.profile_plan && clientData.profile.profile_end_date) {
-      const startDate = clientData.profile.profile_start_date ? new Date(clientData.profile.profile_start_date) : null;
-      const endDate = new Date(clientData.profile.profile_end_date);
-      return { active: endDate.getTime() >= new Date().setHours(0, 0, 0, 0), plan: clientData.profile.profile_plan, startDate, endDate };
+      const endDate = new Date(startDate.getTime() + membership.membership.membership_duration * 86_400_000);
+      return { active: !getMembershipStatus(endDate).expired, plan: membership.membership.membership_type, startDate, endDate };
     }
     return { active: false, plan: "Sin plan", startDate: null, endDate: null };
   }, [clientData]);

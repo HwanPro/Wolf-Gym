@@ -10,16 +10,17 @@ public static class zkfperrdef
     public const int ZKFP_ERR_OK = 0;
     public const int ZKFP_ERR_INITLIB = -1;
     public const int ZKFP_ERR_INIT = -2;
-    public const int ZKFP_ERR_OPEN = -3;
-    public const int ZKFP_ERR_INVALID_PARAM = -4;
-    public const int ZKFP_ERR_ALREADY_INIT = -5;
-    public const int ZKFP_ERR_BUSY = -8;
-    public const int ZKFP_ERR_NO_DEVICE = -9;
-    public const int ZKFP_ERR_NOT_INIT = -10;
-    public const int ZKFP_ERR_NOT_OPEN = -11;
-    public const int ZKFP_ERR_CAPTURE = -12;
-    public const int ZKFP_ERR_EXTRACT = -13;
-    public const int ZKFP_ERR_ABSORT = -14;
+    // ZKFinger Reader SDK C API, Appendix 2. These are native return codes.
+    public const int ZKFP_ERR_OPEN = -6;
+    public const int ZKFP_ERR_INVALID_PARAM = -5;
+    public const int ZKFP_ERR_ALREADY_INIT = 1;
+    public const int ZKFP_ERR_BUSY = -12;
+    public const int ZKFP_ERR_NO_DEVICE = -3;
+    public const int ZKFP_ERR_SUSPENDED = -10;
+    public const int ZKFP_ERR_NOT_OPEN = -7;
+    public const int ZKFP_ERR_CAPTURE = -8;
+    public const int ZKFP_ERR_EXTRACT = -9;
+    public const int ZKFP_ERR_ABSORT = -18;
 }
 
 /// <summary>

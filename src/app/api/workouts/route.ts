@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { authOptions } from "@/lib/auth-options";
 import { PrismaClient } from "@prisma/client";
 import { z } from "zod";
+import { getMembershipStatus } from "@/domain/attendance/attendance-policy";
 
 const prisma = new PrismaClient();
 
@@ -104,17 +105,16 @@ export async function POST(req: NextRequest) {
 
     // Verificar suscripción activa (reutilizando lógica del dashboard)
     let hasActiveSubscription = false;
-    
-    if (user.memberships && user.memberships.length > 0) {
+
+    if (user.profile?.profile_end_date) {
+      hasActiveSubscription = !getMembershipStatus(user.profile.profile_end_date).expired;
+    } else if (user.memberships && user.memberships.length > 0) {
       const membership = user.memberships[0];
       const startDate = new Date(membership.assignedAt);
       const endDate = new Date(
         startDate.getTime() + membership.membership.membership_duration * 86400000
       );
-      hasActiveSubscription = endDate.getTime() > Date.now();
-    } else if (user.profile?.profile_end_date) {
-      const endDate = new Date(user.profile.profile_end_date);
-      hasActiveSubscription = endDate.getTime() > Date.now();
+      hasActiveSubscription = !getMembershipStatus(endDate).expired;
     }
 
     if (!hasActiveSubscription) {
@@ -150,9 +150,9 @@ export async function POST(req: NextRequest) {
       }
     });
 
-    return NextResponse.json({ 
-      id: workout.id, 
-      status: workout.status 
+    return NextResponse.json({
+      id: workout.id,
+      status: workout.status
     });
 
   } catch (error) {

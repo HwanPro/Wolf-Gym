@@ -28,7 +28,7 @@ const W = {
   lineDark: "rgba(255,194,26,0.15)",
   lineStrong: "rgba(255,194,26,0.35)",
   mutedDark: "rgba(255,255,255,0.60)",
-  faintDark: "rgba(255,255,255,0.40)",
+  faintDark: "rgba(255,255,255,0.65)",
 } as const;
 
 const swalBase = {
@@ -57,6 +57,7 @@ type IdentifyResult = {
 type RegisterResult = {
   ok: boolean;
   action: "checkin" | "checkout" | "already_open";
+  type?: "checkin" | "checkout" | "rebote" | "already_open";
   fullName?: string;
   minutesOpen?: number;
   monthlyDebt?: number;
@@ -219,6 +220,9 @@ export default function CheckInPage() {
     [],
   );
   const [showDebtDialog, setShowDebtDialog] = useState(false);
+  const debtSending = useRef(false);
+  const debtIntent = useRef<{ key: string; productId: string; profileId: string } | null>(null);
+  const [debtCatalog, setDebtCatalog] = useState<{ item_id: string; item_name: string; item_price: number; item_discount: number | null; item_stock: number; track_stock: boolean }[]>([]);
   const [selectedClient, setSelectedClient] = useState<DebtTarget | null>(null);
   const [fingerprintCapture, setFingerprintCapture] = useState<{
     open: boolean;
@@ -228,33 +232,31 @@ export default function CheckInPage() {
   }>({ open: false, phase: "ready", operation: "entrada" });
 
   const role = session?.user?.role;
-
-  /* ── persist activity log ── */
   useEffect(() => {
-    if (mounted && role === "admin") {
-      const today = new Date().toDateString();
-      const saved = localStorage.getItem(`activityLog_${today}`);
-      if (saved) {
-        try {
-          setActivityLog(
-            JSON.parse(saved).map(
-              (item: ActivityLog & { timestamp: string }) => ({
-                ...item,
-                timestamp: new Date(item.timestamp),
-              }),
-            ),
-          );
-        } catch {}
-      }
-    }
-  }, [mounted, role]);
+    if (!showDebtDialog || role !== "admin") return;
+    setDebtCatalog([]);
+    void fetch("/api/products/gym", { cache: "no-store" }).then(async response => {
+      if (!response.ok) throw new Error("No se pudo cargar el catálogo");
+      setDebtCatalog(await response.json());
+    }).catch(() => {});
+  }, [showDebtDialog, role]);
 
   useEffect(() => {
-    if (mounted && role === "admin" && activityLog.length > 0) {
-      const today = new Date().toDateString();
-      localStorage.setItem(`activityLog_${today}`, JSON.stringify(activityLog));
+    if (role !== "admin") return;
+    const controller = new AbortController();
+    async function loadHistory() {
+      try {
+        const response = await fetch("/api/check-in/history?limit=50", { cache: "no-store", signal: controller.signal });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (Array.isArray(data.activityLog)) {
+          setActivityLog(data.activityLog.map((item: ActivityLog & { timestamp: string }) => ({ ...item, timestamp: new Date(item.timestamp) })));
+        }
+      } catch { /* Existing activity stays visible if the request is interrupted. */ }
     }
-  }, [activityLog, mounted, role]);
+    void loadHistory();
+    return () => controller.abort();
+  }, [role]);
 
   useEffect(() => {
     setMounted(true);
@@ -368,23 +370,22 @@ export default function CheckInPage() {
   const identifyByTemplate = async (
     template: string,
   ): Promise<IdentifyResult> => {
-    try {
-      const r = await fetch("/api/biometric/identify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ template }),
-        cache: "no-store",
-      });
-      const j = await r.json().catch(() => ({}));
-      return {
-        ok: r.ok,
-        match: Boolean(j?.match),
-        userId: j?.userId ?? j?.user_id ?? null,
-        name: j?.fullName ?? j?.name,
-      };
-    } catch {
-      return { ok: false, match: false, userId: null };
+    const r = await fetch("/api/biometric/identify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ template }),
+      cache: "no-store",
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j?.ok !== true) {
+      throw new Error(j?.message || "No se pudo comparar la huella. Comprueba el servicio biométrico.");
     }
+    return {
+      ok: true,
+      match: Boolean(j?.match),
+      userId: j?.userId ?? j?.user_id ?? null,
+      name: j?.fullName ?? j?.name,
+    };
   };
 
   /* Diálogo compartido de lectura biométrica */
@@ -428,6 +429,16 @@ export default function CheckInPage() {
 
   const showCard = async (data: RegisterResult, fallbackName?: string) => {
     const name = (data.fullName || fallbackName || "").trim();
+    if (data.type === "rebote" || data.type === "already_open" || data.action === "already_open") {
+      await Swal.fire({
+        ...swalBase,
+        icon: "info",
+        title: data.type === "rebote" ? "Registro ya tomado" : "Entrada ya abierta",
+        text: name ? `${name} ya tiene una entrada activa.` : "Ya tienes una entrada activa.",
+        confirmButtonText: "Cerrar",
+      });
+      return;
+    }
     const isAdminUser = role === "admin";
     const monthlyDebtNum = data.monthlyDebt || 0;
     const dailyDebtNum = data.dailyDebt || 0;
@@ -553,7 +564,11 @@ export default function CheckInPage() {
       }
       if (res.match && res.userId) {
         const data = await register({ userId: res.userId });
-        await completeScanDialog();
+        if (data.type === "rebote" || data.type === "already_open" || data.action === "already_open") {
+          closeScanDialog();
+        } else {
+          await completeScanDialog();
+        }
         vibrate(200);
         await showCard(data, res.name);
       } else {
@@ -713,24 +728,28 @@ export default function CheckInPage() {
 
   /* ══════════════════ debt ══════════════════ */
   const addDebt = async (
-    productType: string,
-    customAmount?: number,
-    customName?: string,
+    productId: string,
   ) => {
     if (!selectedClient?.profileId) return;
+    if (debtSending.current) return;
+    if (debtIntent.current && (debtIntent.current.productId !== productId || debtIntent.current.profileId !== selectedClient.profileId)) {
+      await Swal.fire({ ...swalBase, icon: "warning", title: "Operación por confirmar", text: "Consulte Caja / Ventas antes de registrar otro producto. Reintente el mismo producto para confirmar la solicitud pendiente." });
+      return;
+    }
+    debtSending.current = true;
+    debtIntent.current ??= { key: crypto.randomUUID(), productId, profileId: selectedClient.profileId };
     try {
       const response = await fetch("/api/debts", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Idempotency-Key": debtIntent.current.key },
         body: JSON.stringify({
           clientProfileId: selectedClient.profileId,
-          productType,
+          productId,
           quantity: 1,
-          customAmount,
-          customName,
         }),
       });
       const data = await response.json().catch(() => ({}));
+      if (response.status < 500) debtIntent.current = null;
       if (response.ok) {
         const summary = data?.summary as
           | { monthlyDebt: number; dailyDebt: number; totalDebt: number }
@@ -761,7 +780,7 @@ export default function CheckInPage() {
         title: "Error",
         text: getErrorMessage(error, "No se pudo agregar la deuda"),
       });
-    }
+    } finally { debtSending.current = false; }
   };
 
   /* ══════════════════ derived ══════════════════ */
@@ -1044,7 +1063,7 @@ export default function CheckInPage() {
                   className="wg-btn-danger"
                   onClick={forceCheckout}
                   disabled={loading}
-                  style={{ ...btn(W.danger, "#fff"), height: 60, fontSize: 15 }}
+                  style={{ ...btn(W.danger, W.black), height: 60, fontSize: 15 }}
                 >
                   🚪 Marcar Salida
                 </button>
@@ -1552,7 +1571,7 @@ export default function CheckInPage() {
                 <button
                   className="wg-btn-danger"
                   onClick={() => sendCommand("checkout")}
-                  style={{ ...btn(W.danger, "#fff"), height: 54, fontSize: 15 }}
+                  style={{ ...btn(W.danger, W.black), height: 54, fontSize: 15 }}
                 >
                   🚪 Marcar salida
                 </button>
@@ -1686,19 +1705,12 @@ export default function CheckInPage() {
                   marginBottom: 14,
                 }}
               >
-                {[
-                  { label: "Agua S/. 1.50", type: "WATER_1_5" },
-                  { label: "Agua S/. 2.50", type: "WATER_2_5" },
-                  { label: "Agua S/. 3.50", type: "WATER_3_5" },
-                  { label: "Proteína S/. 5", type: "PROTEIN_5" },
-                  { label: "Pre S/. 3", type: "PRE_WORKOUT_3" },
-                  { label: "Pre S/. 5", type: "PRE_WORKOUT_5" },
-                  { label: "Pre S/. 10", type: "PRE_WORKOUT_10" },
-                ].map(({ label, type }) => (
+                {debtCatalog.map(product => (
                   <button
-                    key={type}
+                    key={product.item_id}
                     className="wg-btn-ghost"
-                    onClick={() => addDebt(type)}
+                    disabled={product.track_stock && product.item_stock <= 0}
+                    onClick={() => addDebt(product.item_id)}
                     style={{
                       ...btn(
                         "transparent",
@@ -1710,43 +1722,13 @@ export default function CheckInPage() {
                       padding: "0 10px",
                     }}
                   >
-                    {label}
+                    {product.item_name} · S/ {(Math.round(product.item_price * (1 - (product.item_discount ?? 0) / 100) * 100) / 100).toFixed(2)}
                   </button>
                 ))}
                 <button
                   className="wg-btn-ghost-y"
                   onClick={async () => {
-                    const { value: customData } = await Swal.fire({
-                      ...swalBase,
-                      title: "Producto personalizado",
-                      html: `
-                        <input id="customName" class="swal2-input" placeholder="Nombre del producto">
-                        <input id="customAmount" class="swal2-input" type="number" step="0.01" placeholder="Precio">`,
-                      focusConfirm: false,
-                      preConfirm: () => {
-                        const name = (
-                          document.getElementById(
-                            "customName",
-                          ) as HTMLInputElement
-                        )?.value;
-                        const amount = parseFloat(
-                          (
-                            document.getElementById(
-                              "customAmount",
-                            ) as HTMLInputElement
-                          )?.value || "0",
-                        );
-                        if (!name || amount <= 0) {
-                          Swal.showValidationMessage(
-                            "Ingresa nombre y precio válidos",
-                          );
-                          return false;
-                        }
-                        return { name, amount };
-                      },
-                    });
-                    if (customData)
-                      addDebt("CUSTOM", customData.amount, customData.name);
+                    window.location.assign("/admin/products");
                   }}
                   style={{
                     ...btn("transparent", W.yellow, W.lineStrong),
@@ -1755,7 +1737,7 @@ export default function CheckInPage() {
                     gridColumn: "span 2",
                   }}
                 >
-                  ✨ Producto personalizado
+                  Administrar productos / servicios
                 </button>
               </div>
               <button

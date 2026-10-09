@@ -344,7 +344,7 @@ body {
     --wolf-app-border-strong: oklch(0.56 0.105 86 / 0.78);
     --wolf-app-text: oklch(0.965 0.006 85);
     --wolf-app-muted: oklch(0.72 0.015 80);
-    --wolf-app-faint: oklch(0.58 0.014 80);
+    --wolf-app-faint: oklch(0.68 0.014 80);
     --wolf-app-accent: oklch(0.84 0.17 88);
     --wolf-app-accent-hover: oklch(0.79 0.17 82);
     --wolf-app-success: oklch(0.72 0.15 153);

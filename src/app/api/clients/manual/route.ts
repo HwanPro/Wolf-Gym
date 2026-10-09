@@ -1,15 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/infrastructure/prisma/prisma";
-import { getToken, JWT } from "next-auth/jwt";
+import type { JWT } from "next-auth/jwt";
+import { requestToken } from "@/server/auth/authorization";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   try {
-    const token = (await getToken({
-      req,
-      secret: process.env.NEXTAUTH_SECRET,
-    })) as JWT | null;
+    const token = (await requestToken(req)) as JWT | null;
 
     if (!token || !token.id) {
       return NextResponse.json(
@@ -19,14 +17,22 @@ export async function GET(req: NextRequest) {
     }
 
     const userId = token.id;
-    console.log("🟢 userId:", userId);
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      include: {
+      select: {
+        id: true,
+        username: true,
+        firstName: true,
+        lastName: true,
+        phoneNumber: true,
+        image: true,
+        role: true,
+        createdAt: true,
+        updatedAt: true,
         profile: true,
         memberships: { include: { membership: true } },
-        attendances: true,
+        attendances: { orderBy: { checkInTime: "desc" }, take: 100 },
       },
     });
 
@@ -36,9 +42,7 @@ export async function GET(req: NextRequest) {
         { status: 404 }
       );
     }
-
-    console.log("🟢 Usuario encontrado:", user);
-    return NextResponse.json(user, { status: 200 });
+    return NextResponse.json(user, { status: 200, headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     console.error("❌ Error al obtener el perfil del cliente:", error);
     return NextResponse.json(

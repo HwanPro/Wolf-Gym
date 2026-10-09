@@ -3,31 +3,25 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/infrastructure/prisma/prisma';
 import { getServerSession } from 'next-auth/next';
-import { authOptions } from '@/app/api/auth/[...nextauth]/route';
+import { authOptions } from '@/lib/auth-options';
 
-export const dynamic = "force-dynamic"; 
+export const dynamic = "force-dynamic";
 export async function GET() {
   try {
-    console.log('Iniciando la obtención de la sesión...');
     const session = await getServerSession(authOptions);
-    console.log('Sesión obtenida:', session);
 
     if (!session || session.user.role !== 'admin') {
-      console.log('Usuario no autorizado');
       return NextResponse.json({ message: 'No autorizado' }, { status: 401 });
     }
 
-    console.log('Obteniendo los datos del dashboard...');
-
     // Ingresos totales (suma de todas las compras)
-    const totalIncomeResult = await prisma.purchase.aggregate({
+    const totalIncomeResult = await prisma.paymentRecord.aggregate({ where: { payment_status: "COMPLETED" },
       _sum: {
-        purchase_total: true, // Asegúrate de que 'purchase_total' existe en tu modelo 'Purchase'
+        payment_amount: true,
       },
     });
-    console.log('Resultado de ingresos totales:', totalIncomeResult);
 
-    const totalIncome = totalIncomeResult._sum.purchase_total || 0;
+    const totalIncome = Number(totalIncomeResult._sum.payment_amount || 0);
 
     // Nuevos clientes (usuarios creados en los últimos 30 días)
     const newClients = await prisma.user.count({
@@ -38,17 +32,15 @@ export async function GET() {
         },
       },
     });
-    console.log('Nuevos clientes en los últimos 30 días:', newClients);
 
     // Ventas de productos (compras realizadas en los últimos 30 días)
     const productSales = await prisma.purchase.count({
       where: {
-        purchase_date: { // Asegúrate de que 'purchase_date' existe en tu modelo 'Purchase'
+        OR: [{ cashSaleId: null }, { cashSale: { is: { status: { not: "VOIDED" } } } }], purchase_date: { // Asegúrate de que 'purchase_date' existe en tu modelo 'Purchase'
           gte: new Date(new Date().setDate(new Date().getDate() - 30)),
         },
       },
     });
-    console.log('Ventas de productos en los últimos 30 días:', productSales);
 
     // Asistencia a clases (si tienes este modelo, ajusta según corresponda)
     const classAttendance = 0; // Placeholder, ajusta según tu modelo
@@ -59,8 +51,6 @@ export async function GET() {
       productSales,
       classAttendance,
     };
-
-    console.log('Datos del dashboard obtenidos:', data);
 
     return NextResponse.json(data, { status: 200 });
   } catch (error) {

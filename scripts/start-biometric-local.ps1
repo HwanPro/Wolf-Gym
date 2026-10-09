@@ -25,26 +25,13 @@ if (-not $databaseLine) {
 
 $databaseUrl = $databaseLine.Substring("DATABASE_URL=".Length).Trim('"')
 $uri = [Uri]$databaseUrl
-$credentials = $uri.UserInfo.Split(':', 2)
-
-if ($credentials.Count -ne 2) {
-    throw "DATABASE_URL no contiene credenciales validas."
+if ($uri.Scheme -notin @('postgres','postgresql') -or $uri.Host -notin @('localhost','127.0.0.1','::1','[::1]') -or $uri.Query -match '(?i)[?&](host|service|socket|options)=') {
+    throw "El servicio biometrico local requiere PostgreSQL en loopback, sin redirecciones."
 }
-
-$databaseUser = [Uri]::UnescapeDataString($credentials[0])
-$databasePassword = [Uri]::UnescapeDataString($credentials[1])
-$databaseName = $uri.AbsolutePath.Trim('/')
-$databasePort = if ($uri.Port -gt 0) { $uri.Port } else { 5432 }
-
-$env:ConnectionStrings__DefaultConnection = @(
-    "Host=$($uri.Host)"
-    "Port=$databasePort"
-    "Database=$databaseName"
-    "Username=$databaseUser"
-    "Password=$databasePassword"
-    "SSL Mode=Disable"
-    "Trust Server Certificate=true"
-) -join ';'
+$env:WOLF_LOCAL_ONLY = "1"
+# El servicio lee .env.local y construye la conexión con Npgsql, que escapa
+# correctamente las credenciales. No heredar una conexión remota del terminal.
+$env:ConnectionStrings__DefaultConnection = ""
 $env:ASPNETCORE_ENVIRONMENT = "Production"
 
 Write-Host "Servicio biometrico conectado a PostgreSQL local." -ForegroundColor Green

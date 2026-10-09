@@ -99,9 +99,17 @@ export function getMembershipStatus(
   endDate: Date | null | undefined,
   now = new Date(),
 ): MembershipStatus {
-  if (!endDate) return { expired: false, daysLeft: null };
+  // Reception requires a configured membership; an absent date cannot grant access.
+  if (!endDate || !Number.isFinite(endDate.getTime())) {
+    return { expired: true, daysLeft: null };
+  }
 
-  const end = limaDateParts(endDate);
+  // Date inputs are stored at UTC midnight; preserve their calendar label.
+  const dateOnly = endDate.getUTCHours() === 0 && endDate.getUTCMinutes() === 0 &&
+    endDate.getUTCSeconds() === 0 && endDate.getUTCMilliseconds() === 0;
+  const end = dateOnly
+    ? { year: endDate.getUTCFullYear(), month: endDate.getUTCMonth() + 1, day: endDate.getUTCDate() }
+    : limaDateParts(endDate);
   const current = limaDateParts(now);
   const endDay = Date.UTC(end.year, end.month - 1, end.day);
   const currentDay = Date.UTC(current.year, current.month - 1, current.day);

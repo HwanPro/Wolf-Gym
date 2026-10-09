@@ -95,6 +95,7 @@ export default function AdminReportes() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [exportingExcel, setExportingExcel] = useState(false);
+  const exportInFlight = useRef(false);
   const [error, setError] = useState<string | null>(null);
 
   const redirectToLogin = useCallback(() => {
@@ -142,7 +143,8 @@ export default function AdminReportes() {
   };
 
   const downloadReportExcel = async () => {
-    if (!report || exportingExcel) return;
+    if (!report || exportInFlight.current) return;
+    exportInFlight.current = true;
     setExportingExcel(true);
     try {
       const ExcelJS = await import("exceljs");
@@ -260,6 +262,7 @@ export default function AdminReportes() {
       console.error("Error exportando reporte Excel:", exportError);
       setError("No se pudo generar el archivo Excel.");
     } finally {
+      exportInFlight.current = false;
       setExportingExcel(false);
     }
   };
@@ -333,7 +336,7 @@ export default function AdminReportes() {
             REPORTES
           </h1>
           {report && (
-            <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", margin: "4px 0 0" }}>
+            <p style={{ fontSize: 12, color: "rgba(255,255,255,0.65)", margin: "4px 0 0" }}>
               Generado: {new Date(report.generatedAt).toLocaleString("es-PE")}
             </p>
           )}
@@ -439,7 +442,7 @@ export default function AdminReportes() {
           <div
             style={{
               ...card,
-              color: "rgba(255,255,255,0.45)",
+              color: "rgba(255,255,255,0.65)",
               fontSize: 14,
             }}
           >
@@ -488,7 +491,7 @@ export default function AdminReportes() {
                       fontWeight: 700,
                       letterSpacing: "0.10em",
                       textTransform: "uppercase",
-                      color: "rgba(255,255,255,0.4)",
+                      color: "rgba(255,255,255,0.65)",
                       margin: "0 0 8px",
                     }}
                   >
@@ -657,7 +660,7 @@ export default function AdminReportes() {
                         </div>
                         <p style={{ fontSize: 12, color: "rgba(255,255,255,0.65)", margin: 0 }}>{issue.description}</p>
                         {issue.samples.length > 0 && (
-                          <p style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginTop: 6, marginBottom: 0 }}>
+                          <p style={{ fontSize: 11, color: "rgba(255,255,255,0.65)", marginTop: 6, marginBottom: 0 }}>
                             Muestras: {issue.samples.join(", ")}
                           </p>
                         )}
@@ -675,7 +678,7 @@ export default function AdminReportes() {
                 <p style={eyebrow}>Últimos 6 meses</p>
                 <h3 style={cardTitle}>TENDENCIA DE INGRESOS</h3>
                 {report.trends.incomeTrend.length === 0 ? (
-                  <p style={{ fontSize: 13, color: "rgba(255,255,255,0.35)" }}>Sin datos de ingresos.</p>
+                  <p style={{ fontSize: 13, color: "rgba(255,255,255,0.65)" }}>Sin datos de ingresos.</p>
                 ) : (
                   <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                     {report.trends.incomeTrend.map((point, index) => (
@@ -720,7 +723,7 @@ export default function AdminReportes() {
                 <p style={eyebrow}>Membresías</p>
                 <h3 style={cardTitle}>DISTRIBUCIÓN DE PLANES</h3>
                 {report.distributions.planDistribution.length === 0 ? (
-                  <p style={{ fontSize: 13, color: "rgba(255,255,255,0.35)" }}>Sin clientes con plan.</p>
+                  <p style={{ fontSize: 13, color: "rgba(255,255,255,0.65)" }}>Sin clientes con plan.</p>
                 ) : (
                   <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                     {report.distributions.planDistribution.map((plan) => (
@@ -774,7 +777,7 @@ export default function AdminReportes() {
                 <p style={eyebrow}>Últimos 14 días</p>
                 <h3 style={cardTitle}>ASISTENCIA DIARIA</h3>
                 {report.trends.attendanceTrend.length === 0 ? (
-                  <p style={{ fontSize: 13, color: "rgba(255,255,255,0.35)" }}>Sin datos de asistencia.</p>
+                  <p style={{ fontSize: 13, color: "rgba(255,255,255,0.65)" }}>Sin datos de asistencia.</p>
                 ) : (
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     {report.trends.attendanceTrend.map((point) => (
@@ -818,7 +821,7 @@ export default function AdminReportes() {
                 <p style={eyebrow}>Por ingresos</p>
                 <h3 style={cardTitle}>TOP PRODUCTOS</h3>
                 {report.distributions.topProducts.length === 0 ? (
-                  <p style={{ fontSize: 13, color: "rgba(255,255,255,0.35)" }}>No hay ventas registradas.</p>
+                  <p style={{ fontSize: 13, color: "rgba(255,255,255,0.65)" }}>No hay ventas registradas.</p>
                 ) : (
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     {report.distributions.topProducts.map((product) => (
@@ -836,7 +839,7 @@ export default function AdminReportes() {
                       >
                         <div>
                           <p style={{ fontSize: 13, fontWeight: 600, color: "#fff", margin: 0 }}>{product.name}</p>
-                          <p style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", margin: "2px 0 0" }}>
+                          <p style={{ fontSize: 11, color: "rgba(255,255,255,0.65)", margin: "2px 0 0" }}>
                             {product.quantity} unidades vendidas
                           </p>
                         </div>

@@ -1,14 +1,17 @@
 // /app/api/admin/me/route.ts (o donde prefieras)
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/infrastructure/prisma/prisma";
-import { getToken } from "next-auth/jwt";
+import { requestToken } from "@/server/auth/authorization";
 
 export async function GET(req: NextRequest) {
   try {
-    const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
-    if (!token || token.role !== "admin") {
-      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-    }
+    const token = await requestToken(req);
+    if (!token) {
+    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  }
+  if (token.role !== "admin") {
+    return NextResponse.json({ error: "No autorizado" }, { status: 403 });
+  }
 
     // Busca el usuario admin con profile y solo campos seguros
     const admin = await prisma.user.findUnique({

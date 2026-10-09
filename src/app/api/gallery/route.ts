@@ -1,9 +1,11 @@
+import { assertExternalWrites } from "@/server/security/external-writes";
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/infrastructure/prisma/prisma";
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { v4 as uuidv4 } from "uuid";
 import { requireAdmin } from "@/server/auth/authorization";
-import { safeStorageSegment, validateUploadFile } from "@/server/files/file-validation";
+import { safeStorageSegment, validateUploadFile, safeUploadBuffer } from "@/server/files/file-validation";
+import {discardNewUploadIfUnreferenced} from "@/server/files/upload-recovery";
 
 const s3Client = new S3Client({
   region: process.env.AWS_REGION!,
@@ -32,6 +34,8 @@ export async function POST(request: NextRequest) {
   const authorization = await requireAdmin(request);
   if (!authorization.authorized) return authorization.response;
 
+  let uploadedKey: string | undefined;
+  let persisted = false;
   try {
     const data = await request.formData();
     const file = data.get("file") as File;
@@ -52,7 +56,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: validationError }, { status: 400 });
     }
 
-    const buffer = Buffer.from(await file.arrayBuffer());
+    const buffer = await safeUploadBuffer(file);
+    if (!buffer) return NextResponse.json({ error: "El contenido del archivo no es válido" }, { status: 400 });
     const today = new Date();
     const fileKey = `uploads/${today.getUTCFullYear()}/${today.getUTCMonth() + 1}/${today.getUTCDate()}/${uuidv4()}-${safeStorageSegment(file.name)}`;
 
@@ -63,13 +68,20 @@ export async function POST(request: NextRequest) {
       ContentType: file.type,
     };
 
+    if (process.env.WOLF_DISABLE_EXTERNAL_WRITES === "1") {
+      return NextResponse.json({ error: "La carga de imágenes está deshabilitada en este entorno de prueba. La galería se conserva." }, { status: 503 });
+    }
+    assertExternalWrites();
+
     await s3Client.send(new PutObjectCommand(uploadParams));
+    uploadedKey = fileKey;
 
     const fileUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${fileKey}`;
 
     const newImage = await prisma.gallery.create({
       data: { imageUrl: fileUrl },
     });
+    persisted = true;
 
     return NextResponse.json(
       { message: "Imagen subida correctamente", item: newImage },
@@ -81,5 +93,10 @@ export async function POST(request: NextRequest) {
       { error: "Error al subir archivo" },
       { status: 500 }
     );
+  } finally {
+    if (uploadedKey && !persisted) {
+      const key=uploadedKey,url=`https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
+      await discardNewUploadIfUnreferenced(async()=>Boolean(await prisma.gallery.findFirst({where:{imageUrl:url},select:{id:true}})),()=>s3Client.send(new DeleteObjectCommand({Bucket:process.env.AWS_BUCKET_NAME!,Key:key})));
+    }
   }
 }

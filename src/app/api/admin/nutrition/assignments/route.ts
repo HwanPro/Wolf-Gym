@@ -84,6 +84,7 @@ export async function POST(request: NextRequest) {
     }
 
     const assignment = await prisma.$transaction(async (transaction) => {
+      await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'nutrition-user:' + input.userId}))`;
       if (input.assessment) {
         const assessment = input.assessment;
         const profile = await transaction.nutritionProfile.upsert({

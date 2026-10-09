@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { FaFacebook, FaInstagram, FaTwitter } from "react-icons/fa";
 import Image from "next/image";
-import Script from "next/script";
+import { useCulqiPayment } from "@/features/payments/useCulqiPayment";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { useSession, signIn } from "next-auth/react";
@@ -223,6 +223,7 @@ function EditGalleryForm({
       <div>
         <input
           type="file"
+          aria-label="Nueva imagen de galería"
           accept="image/*"
           onChange={handleFileChange}
           className="w-full"
@@ -249,7 +250,8 @@ function EditGalleryForm({
 export default function WolfGymLanding() {
   const [modalAbierto, setModalAbierto] = useState(false);
   const [showSticky, setShowSticky] = useState(false);
-  const [culqiReady, setCulqiReady] = useState(false);
+  const payment = useCulqiPayment();
+  const [membershipEmail, setMembershipEmail] = useState("");
 
   // Estados para editar planes y galería (admin)
   const [showEditPlanModal, setShowEditPlanModal] = useState(false);
@@ -286,14 +288,6 @@ export default function WolfGymLanding() {
     fetchPlans();
   }, [fetchPlans]);
 
-  function getPlanAmountCents(plan: Plan) {
-    return plan.amountCents ?? Math.round(Number(plan.price || 0) * 100);
-  }
-
-  function getPlanDescription(plan: Plan) {
-    return `${plan.name} - S/${Number(plan.price || 0).toFixed(2)}`;
-  }
-
   function formatPlanDuration(plan: Plan) {
     const days = plan.durationDays;
     if (!days) return "Acceso vigente";
@@ -324,52 +318,18 @@ export default function WolfGymLanding() {
     console.log("Editar item de galería:", item);
   }
 
-  // Manejo de planes vía Culqi (para clientes)
-  const handlePlanSelection = async (planInfo: {
-    amount: number;
-    description: string;
-  }) => {
-    if (!session) {
-      signIn();
-      return;
+  const handlePlanSelection = async (plan: Plan) => {
+    if (!session) { signIn(); return; }
+    const email = membershipEmail.trim() || session.user?.email || "";
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setModalAbierto(true); toast.info("Ingresa un correo para el comprobante y elige el plan."); return;
     }
-    if (!culqiReady || !window.Culqi) {
-      toast.error("Pasarela de pago no disponible. Intenta nuevamente.");
-      return;
-    }
-    window.Culqi.publicKey = process.env.NEXT_PUBLIC_CULQI_PUBLIC_KEY!;
-    window.Culqi.settings({
-      title: "Wolf Gym",
-      currency: "PEN",
-      description: planInfo.description,
-      amount: planInfo.amount,
+    setModalAbierto(false);
+    await payment.openCheckout({
+      planId: plan.id || plan.slug,
+      email,
+      onConfirmed: () => { setModalAbierto(false); toast.success("Pago confirmado. Tu membresía está activa."); },
     });
-    window.Culqi.token = async (tokenObject: { id: string }) => {
-      console.log("Token de Culqi:", tokenObject);
-      try {
-        const resp = await fetch("/api/payaments/culqui", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            token: tokenObject.id,
-            amount: planInfo.amount,
-            description: planInfo.description,
-            email: session?.user?.email || "cliente@example.com",
-          }),
-        });
-        if (!resp.ok) {
-          throw new Error("Error al procesar el pago");
-        }
-        const data = await resp.json();
-        console.log("Pago realizado con éxito:", data);
-        alert("¡Pago exitoso! Se te ha asignado el plan.");
-      } catch (error) {
-        console.error("Error al procesar el pago:", error);
-        alert("Hubo un problema procesando el pago.");
-      }
-      setModalAbierto(false);
-    };
-    window.Culqi.open();
   };
 
   // Efecto: botones sticky
@@ -456,11 +416,12 @@ export default function WolfGymLanding() {
 
   return (
     <div className="min-h-dvh bg-black text-white">
-      <Script
-        src="https://checkout.culqi.com/js/v4"
-        strategy="afterInteractive"
-        onLoad={() => setCulqiReady(true)}
-      />
+      {payment.config.mode === "test" && <p className="bg-yellow-100 p-2 text-center font-bold text-black">Modo de prueba · usa únicamente tarjetas de prueba</p>}
+      {payment.message && <div role="status" className="border border-yellow-400 bg-black p-3 text-white">
+        {payment.message}
+        {payment.hasPendingAttempt && <button type="button" className="ml-3 text-yellow-300 underline" disabled={payment.processing} onClick={payment.checkStatus}>Consultar estado del pago</button>}
+        {payment.attempt && ["RESERVED", "REQUIRES_3DS"].includes(payment.attempt.state) && <button type="button" className="ml-3 text-yellow-300 underline" disabled={payment.processing} onClick={payment.cancelAuthentication}>Cancelar intento y liberar reserva</button>}
+      </div>}
       <StickyButtons />
       {showEditPlanModal && modalPlan && (
         <Dialog
@@ -632,7 +593,7 @@ export default function WolfGymLanding() {
           <div className="mx-auto max-w-7xl">
             <div className="grid gap-10 lg:grid-cols-[0.9fr_1.1fr] lg:items-start">
               <div>
-                <p className="mb-3 text-xs font-black uppercase text-[#FF7A1A]">
+                <p className="mb-3 text-xs font-black uppercase text-[#B34700]">
                   Experiencia Wolf
                 </p>
                 <h2
@@ -719,10 +680,7 @@ export default function WolfGymLanding() {
                   ) : (
                     <Button
                       onClick={() =>
-                        handlePlanSelection({
-                          amount: getPlanAmountCents(plan),
-                          description: getPlanDescription(plan),
-                        })
+                        handlePlanSelection(plan)
                       }
                       className="mt-6 bg-[#FFC21A] font-bold text-[#0A0A0A] hover:bg-[#E5A800]"
                     >
@@ -743,7 +701,7 @@ export default function WolfGymLanding() {
           <div className="mx-auto max-w-7xl">
             <div className="mb-10 flex flex-col justify-between gap-5 md:flex-row md:items-end">
               <div>
-                <p className="mb-3 text-xs font-black uppercase text-[#FF7A1A]">
+                <p className="mb-3 text-xs font-black uppercase text-[#B34700]">
                   Instalaciones
                 </p>
                 <h2
@@ -791,6 +749,7 @@ export default function WolfGymLanding() {
                   <input
                     type="file"
                     name="file"
+                    aria-label="Imagen para la galería"
                     accept="image/*"
                     className="min-w-0 flex-1 border border-[#0A0A0A]/20 bg-[#F5F5F4] p-2 text-sm"
                     required
@@ -920,15 +879,16 @@ export default function WolfGymLanding() {
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-6">
+            <div>
+              <label htmlFor="membership-payment-email" className="mb-2 block text-sm font-semibold">Correo para el comprobante</label>
+              <input id="membership-payment-email" type="email" autoComplete="email" value={membershipEmail} onChange={event => setMembershipEmail(event.target.value)} className="w-full rounded border border-zinc-500 p-3 text-black" />
+            </div>
             {membershipPlans.map((plan) => (
               <Button
                 key={plan.id || plan.name}
                 className="h-auto rounded-none bg-[#FFC21A] px-4 py-3 text-left text-sm font-bold text-[#0A0A0A] hover:bg-[#E5A800]"
                 onClick={() =>
-                  handlePlanSelection({
-                    amount: getPlanAmountCents(plan),
-                    description: getPlanDescription(plan),
-                  })
+                  handlePlanSelection(plan)
                 }
               >
                 <span className="flex w-full items-center justify-between gap-3">

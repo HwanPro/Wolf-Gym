@@ -31,6 +31,18 @@ try
     Log.Information("Starting WolfGym Biometric Service");
 
     var builder = WebApplication.CreateBuilder(args);
+    var localDatabase = LocalDatabaseConfiguration.Apply(builder.Configuration, builder.Environment.ContentRootPath);
+    // Prove readiness before accepting reads; never report healthy with no DB.
+    await using (var connection = new Npgsql.NpgsqlConnection(builder.Configuration.GetConnectionString("DefaultConnection")))
+    {
+        await connection.OpenAsync();
+        await using var command = new Npgsql.NpgsqlCommand("SELECT current_database(), host(inet_server_addr()), (SELECT count(*) FROM fingerprints)", connection);
+        await using var reader = await command.ExecuteReaderAsync();
+        await reader.ReadAsync();
+        var address = reader.GetString(1);
+        if (localDatabase && address != "127.0.0.1" && address != "::1") throw new InvalidOperationException("Unexpected biometric database destination.");
+        Log.Information("Biometric database ready: {Database}, {Address}, {Fingerprints} stored templates", reader.GetString(0), address, reader.GetInt64(2));
+    }
 
     // Serilog provider
     builder.Host.UseSerilog();
@@ -48,35 +60,14 @@ try
     });
 
     // CORS: configuración para desarrollo y producción
+    var allowedOrigins = builder.Environment.IsDevelopment()
+        ? new[] { "http://localhost:3000", "http://127.0.0.1:3000" }
+        : new[] { "https://wolf-gym.com", "https://www.wolf-gym.com", "http://wolf-gym.com", "http://www.wolf-gym.com", "http://localhost:3000", "http://127.0.0.1:3000" };
     builder.Services.AddCors(options =>
     {
         options.AddDefaultPolicy(policy =>
         {
-            var isDevelopment = builder.Environment.IsDevelopment();
-            if (isDevelopment)
-            {
-                // Desarrollo: solo localhost
-                policy.WithOrigins(
-                        "http://localhost:3000", 
-                        "http://127.0.0.1:3000"
-                      )
-                      .AllowAnyMethod()
-                      .AllowAnyHeader();
-            }
-            else
-            {
-                // Producción web y aplicación de escritorio local.
-                policy.WithOrigins(
-                        "https://wolf-gym.com",
-                        "https://www.wolf-gym.com",
-                        "http://wolf-gym.com",
-                        "http://www.wolf-gym.com",
-                        "http://localhost:3000",
-                        "http://127.0.0.1:3000"
-                      )
-                      .AllowAnyMethod()
-                      .AllowAnyHeader();
-            }
+            policy.WithOrigins(allowedOrigins).AllowAnyMethod().AllowAnyHeader();
         });
     });
 
@@ -121,6 +112,18 @@ try
     });
 
     // CORS
+    // CORS alone does not stop a simple POST from activating the reader.
+    app.Use(async (context, next) =>
+    {
+        var origin = context.Request.Headers.Origin;
+        if (origin.Count > 0 && (origin.Count != 1 || !allowedOrigins.Contains(origin[0], StringComparer.Ordinal)))
+        {
+            context.Response.StatusCode = 403;
+            await context.Response.WriteAsJsonAsync(new { ok = false, message = "Origin not allowed" });
+            return;
+        }
+        await next(context);
+    });
     app.UseCors();
 
     // Swagger solo en Dev (si quieres siempre, quita el if)
@@ -135,7 +138,6 @@ try
 
     // Rutas
     app.MapControllers();
-    app.MapHealthChecks("/health");
 
     // Logs de ciclo de vida (útil si Windows reinicia el servicio)
     app.Lifetime.ApplicationStarted.Register(() =>
@@ -150,6 +152,7 @@ try
 catch (Exception ex)
 {
     Log.Fatal(ex, "Application terminated unexpectedly");
+    Environment.ExitCode = 1;
 }
 finally
 {

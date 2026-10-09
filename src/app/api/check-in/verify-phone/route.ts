@@ -1,7 +1,12 @@
+import type { NextRequest } from "next/server";
+import { requireAdmin } from "@/server/auth/authorization";
 import { NextResponse } from "next/server";
 import prisma from "@/infrastructure/prisma/prisma";
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
+  const authorization = await requireAdmin(req);
+  if (!authorization.authorized) return authorization.response;
+
   try {
     const { userId, phone } = await req.json();
     const normalized = String(phone || "").replace(/\D/g, "").slice(-9);

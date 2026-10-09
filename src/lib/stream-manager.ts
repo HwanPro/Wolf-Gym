@@ -2,7 +2,11 @@
 // Gestor centralizado para el stream de eventos
 
 // Store para mantener las conexiones activas por sala
-const connections = new Map<string, Set<ReadableStreamDefaultController>>();
+// Next puede cargar este módulo desde varios paquetes de rutas en el mismo proceso.
+const streamGlobal = globalThis as typeof globalThis & {
+  wolfGymStreamConnections?: Map<string, Set<ReadableStreamDefaultController>>;
+};
+const connections = streamGlobal.wolfGymStreamConnections ??= new Map<string, Set<ReadableStreamDefaultController>>();
 
 // Función para agregar una conexión
 export function addConnection(room: string, controller: ReadableStreamDefaultController) {
@@ -34,11 +38,11 @@ export function broadcastToRoom(room: string, data: any) {
   }
 
   const message = `data: ${JSON.stringify(data)}\n\n`;
-  console.log(`Broadcasting a ${roomConnections.size} conexiones en sala: ${room}`, data);
-  
+  console.log(`Broadcasting a ${roomConnections.size} conexiones en sala: ${room}`);
+
   // Enviar a todas las conexiones activas
   const deadConnections: ReadableStreamDefaultController[] = [];
-  
+
   roomConnections.forEach((controller) => {
     try {
       controller.enqueue(message);

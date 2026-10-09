@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import prisma from "@/infrastructure/prisma/prisma";
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { authOptions } from "@/lib/auth-options";
 import { z, ZodError } from "zod";
+import { canUseEmailUsername } from "@/server/auth/email-ownership";
 
 // Definimos un esquema Zod para validar los datos que llegan en el body
 const updateProfileSchema = z.object({
@@ -25,6 +26,9 @@ export async function PATCH(request: Request) {
     const body = await request.json();
     const { username, firstName, lastName, phone, emergencyPhone } =
       updateProfileSchema.parse(body);
+    if (!(await canUseEmailUsername(session.user.id, username))) {
+      return NextResponse.json({ error: "Verifica el correo antes de usarlo como usuario" }, { status: 403 });
+    }
 
     // Verificar si el usuario existe en la tabla User
     const existingUser = await prisma.user.findUnique({
@@ -51,6 +55,7 @@ export async function PATCH(request: Request) {
     // Usamos una transacción para actualizar ambas tablas
     const [updatedUser, updatedProfile] = await prisma.$transaction([
       prisma.user.update({
+        select: { id: true, username: true, firstName: true, lastName: true, phoneNumber: true, image: true, role: true },
         where: { id: session.user.id },
         data: {
           username: username,

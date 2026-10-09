@@ -53,10 +53,16 @@ describe("attendance policy", () => {
     ).toEqual({ expired: true, daysLeft: 0 });
   });
 
-  it("does not block attendance when no membership end date exists", () => {
-    expect(getMembershipStatus(null, new Date())).toEqual({
-      expired: false,
+  it.each([null, undefined, new Date("invalid")])("blocks attendance without a valid membership end date: %s", (endDate) => {
+    expect(getMembershipStatus(endDate, new Date())).toEqual({
+      expired: true,
       daysLeft: null,
     });
+  });
+
+  it("preserves a date-only membership through that calendar day in Lima", () => {
+    const end = new Date("2026-11-02T00:00:00.000Z");
+    expect(getMembershipStatus(end, new Date("2026-11-03T04:59:00Z"))).toEqual({expired:false,daysLeft:0});
+    expect(getMembershipStatus(end, new Date("2026-11-03T05:00:00Z"))).toEqual({expired:true,daysLeft:0});
   });
 });

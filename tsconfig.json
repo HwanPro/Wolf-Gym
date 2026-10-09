@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "target": "ES2020" ,
+    "target": "ES2020",
     "lib": [
       "dom",
       "dom.iterable",
@@ -30,18 +30,23 @@
     },
     "forceConsistentCasingInFileNames": true
   },
-"include": [
-  "next-env.d.ts",
-  "**/*.ts",
-  "**/*.tsx",
-  "src/types/next-auth.d.ts",
-  ".next/types/**/*.ts",
-  ".next-e2e/types/**/*.ts",
-  "components/ProtectedRoute.js",
-  "src/app/api/check-in"
- ],
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    ".next-build-local/types/**/*.ts",
+    ".next-e2e/types/**/*.ts",
+    ".next-manual-production/types/**/*.ts",
+    ".next-manual/types/**/*.ts",
+    ".next/types/**/*.ts",
+    "components/ProtectedRoute.js",
+    "next-env.d.ts",
+    "src/app/api/check-in",
+    "src/types/next-auth.d.ts",
+    ".next-corrections-production/types/**/*.ts"
+  ],
   "exclude": [
     "node_modules",
+    "outputs",
     "**/*.test.ts",
     "**/*.test.tsx",
     "dist",

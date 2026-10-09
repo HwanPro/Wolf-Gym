@@ -16,6 +16,7 @@ model User {
   password             String?
   otpCode              String?
   twoFASecret          String?
+  securityVersion      Int @default(0)
   createdAt            DateTime                     @default(now())
   updatedAt            DateTime                     @updatedAt
   lastName             String                       @default("")
@@ -37,6 +38,8 @@ model User {
   passwordResetToken   PasswordResetToken?
   nutritionProfile     NutritionProfile?
   nutritionAssignments NutritionPlanAssignment[]    @relation("UserNutritionAssignments")
+  cashSales            CashSale[]                    @relation("CashCustomer")
+  operatedSales        CashSale[]                    @relation("CashOperator")
 
   @@map("users")
 }
@@ -75,10 +78,37 @@ model PaymentRecord {
   updatedAt         DateTime      @updatedAt
   payment_method    PaymentMethod @default(CASH)
   payer_user        User          @relation("UserPayments", fields: [payer_user_id], references: [id])
+  cashSaleId        String?
+  tenderMethod      String?
+  cashSale          CashSale? @relation(fields: [cashSaleId], references: [id], onDelete: Restrict)
+  onlineAttempt     OnlinePaymentAttempt?
 
   @@index([payer_user_id])
   @@index([client_profile_id])
   @@index([payment_date])
+}
+
+// Durable intent is committed before contacting Culqi. An unknown outcome is
+// never retried as a new charge; it remains reserved for reconciliation.
+model OnlinePaymentAttempt {
+  id                 String   @id
+  userId             String
+  requestHash        String
+  sourceHash         String   @unique
+  gatewayMode        String
+  state              String   @default("RESERVED")
+  amountCents        Int
+  payload            Json
+  paymentId          Int      @unique
+  payment            PaymentRecord @relation(fields: [paymentId], references: [payment_id], onDelete: Restrict)
+  chargeId           String?  @unique
+  authenticationHash String?
+  lastErrorCode      String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([state, createdAt])
 }
 
 model UserContact {
@@ -99,6 +129,7 @@ model ClientProfile {
   profile_id              String       @id @default(cuid())
   profile_address         String?      @default("")
   profile_social          String?      @default("")
+  // Normalized non-empty DNI uniqueness is enforced by the reviewed SQL expression index.
   documentNumber          String?      @map("document_number")
   profile_first_name      String?
   profile_last_name       String?
@@ -122,6 +153,10 @@ model InventoryItem {
   is_admin_only    Boolean    @default(false)
   item_category    String?    @default("general")
   purchases        Purchase[]
+  track_stock      Boolean @default(true)
+  item_sku         String? @unique
+  cashLines        CashSaleLine[]
+  dailyDebts       DailyDebt[]
 
   @@index([is_admin_only])
   @@index([item_category])
@@ -163,6 +198,8 @@ model Purchase {
   productId         String
   customer          User          @relation(fields: [customerId], references: [id])
   product           InventoryItem @relation(fields: [productId], references: [item_id])
+  cashSaleId        String?
+  cashSale          CashSale? @relation(fields: [cashSaleId], references: [id], onDelete: Restrict)
 }
 
 model Attendance {
@@ -260,6 +297,10 @@ model DailyDebt {
   quantity        Int         @default(1)
   createdAt       DateTime    @default(now())
   createdBy       String?
+  productId       String?
+  product         InventoryItem? @relation(fields: [productId], references: [item_id], onDelete: Restrict)
+  cashSaleId      String? @unique
+  cashSale        CashSale? @relation(fields: [cashSaleId], references: [id], onDelete: Restrict)
 
   @@index([clientProfileId, createdAt])
   @@map("daily_debts")
@@ -276,6 +317,8 @@ model DebtHistory {
   createdAt       DateTime    @default(now())
   deletedAt       DateTime?
   createdBy       String?
+  cashSaleId      String?
+  productId       String?
 
   @@index([clientProfileId, createdAt])
   @@map("debt_history")
@@ -712,6 +755,101 @@ model NutritionCheckIn {
   @@map("nutrition_check_ins")
 }
 
+model CashSession {
+  id              String @id @default(cuid())
+  registerId      String @default("main")
+  status          String @default("OPEN")
+  openedAt        DateTime @default(now())
+  closedAt        DateTime?
+  openedBy        String
+  closedBy        String?
+  openingCents    Int
+  expectedCents   Int?
+  countedCents    Int?
+  differenceCents Int?
+  openingNote     String @default("")
+  closingNote     String @default("")
+  sales           CashSale[]
+  movements       CashMovement[]
+  @@index([registerId, status])
+  @@map("cash_sessions")
+}
+
+model CashSale {
+  id              String @id @default(cuid())
+  number          Int @unique @default(autoincrement())
+  sessionId       String
+  cashierId       String
+  customerId      String?
+  customerName    String
+  status          String @default("COMPLETED")
+  subtotalCents   Int
+  discountCents   Int
+  discountPercent Float @default(0)
+  totalCents      Int
+  paidCents       Int
+  dueCents        Int
+  tenderedCents   Int @default(0)
+  changeCents     Int @default(0)
+  note            String @default("")
+  createdAt       DateTime @default(now())
+  voidedAt        DateTime?
+  voidedBy        String?
+  voidReason      String?
+  session         CashSession @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  cashier         User @relation("CashOperator", fields: [cashierId], references: [id], onDelete: Restrict)
+  customer        User? @relation("CashCustomer", fields: [customerId], references: [id], onDelete: Restrict)
+  lines           CashSaleLine[]
+  payments        PaymentRecord[]
+  purchases       Purchase[]
+  debt            DailyDebt?
+  movements       CashMovement[]
+  @@index([createdAt, status])
+  @@index([customerId])
+  @@map("cash_sales")
+}
+
+model CashSaleLine {
+  id               String @id @default(cuid())
+  saleId           String
+  productId        String
+  productName      String
+  quantity         Int
+  unitCents        Int
+  totalCents       Int
+  stockTracked     Boolean
+  sale             CashSale @relation(fields: [saleId], references: [id], onDelete: Restrict)
+  product          InventoryItem @relation(fields: [productId], references: [item_id], onDelete: Restrict)
+  @@index([saleId])
+  @@map("cash_sale_lines")
+}
+
+model CashMovement {
+  id           String @id @default(cuid())
+  sessionId    String
+  saleId       String?
+  kind         String
+  amountCents  Int
+  reason       String
+  createdBy    String
+  createdAt    DateTime @default(now())
+  session      CashSession @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  sale         CashSale? @relation(fields: [saleId], references: [id], onDelete: Restrict)
+  @@index([sessionId, createdAt])
+  @@map("cash_movements")
+}
+
+model CashAction {
+  id          String @id @default(cuid())
+  requestKey  String @unique
+  actorId     String
+  kind        String
+  requestHash String
+  result      Json
+  createdAt   DateTime @default(now())
+  @@map("cash_actions")
+}
+
 enum PaymentMethod {
   CASH
   CARD
@@ -788,6 +926,15 @@ enum NutritionQuantityUnit {
   TABLESPOON
   TEASPOON
   VISUAL
+}
+
+model SecurityRateLimitWindow {
+  keyHash   String   @id @map("key_hash") @db.VarChar(64)
+  attempts  Int
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+
+  @@index([expiresAt], map: "security_rate_limit_window_expires_at_idx")
+  @@map("security_rate_limit_window")
 }
 
 enum NutritionAssignmentStatus {

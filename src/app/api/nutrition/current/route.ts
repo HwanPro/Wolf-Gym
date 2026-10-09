@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import prisma from "@/infrastructure/prisma/prisma";
 import { authorizeRequest } from "@/server/auth/authorization";
+import { nutritionDatabaseError } from "@/server/nutrition/database-error";
 
 export async function GET(request: NextRequest) {
   const authorization = await authorizeRequest(request, ["client", "admin"]);
@@ -12,6 +13,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Sesión inválida" }, { status: 401 });
   }
 
+  try {
   const now = new Date();
   const assignment = await prisma.nutritionPlanAssignment.findFirst({
     where: {
@@ -80,4 +82,10 @@ export async function GET(request: NextRequest) {
     { assignment },
     { headers: { "Cache-Control": "private, no-store" } },
   );
+  } catch (error) {
+    const unavailable = nutritionDatabaseError(error);
+    if (unavailable) return unavailable;
+    console.error("No se pudo cargar la asignación nutricional", error);
+    return NextResponse.json({ error: "No se pudo cargar el plan nutricional" }, { status: 500 });
+  }
 }

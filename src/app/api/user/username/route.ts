@@ -2,7 +2,8 @@
 import { NextResponse } from "next/server";
 import prisma from "@/infrastructure/prisma/prisma";
 import { z } from "zod";
-import { getToken } from "next-auth/jwt";
+import { requestToken } from "@/server/auth/authorization";
+import { canUseEmailUsername } from "@/server/auth/email-ownership";
 
 const Schema = z.object({
   newUsername: z.string().email(), // queremos correo
@@ -10,10 +11,13 @@ const Schema = z.object({
 
 export async function PUT(req: Request) {
   try {
-    const token = await getToken({ req: req as any, secret: process.env.NEXTAUTH_SECRET });
+    const token = await requestToken(req as any);
     if (!token?.id) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
 
     const { newUsername } = Schema.parse(await req.json());
+    if (!(await canUseEmailUsername(String(token.id), newUsername))) {
+      return NextResponse.json({ error: "Verifica el correo antes de usarlo como usuario" }, { status: 403 });
+    }
 
     // verifica unicidad
     const exists = await prisma.user.findUnique({ where: { username: newUsername } });

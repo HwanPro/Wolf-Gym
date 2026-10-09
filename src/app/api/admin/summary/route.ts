@@ -1,20 +1,20 @@
 // src/app/api/admin/summary/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/infrastructure/prisma/prisma";
-import { getToken } from "next-auth/jwt";
+import { requestToken } from "@/server/auth/authorization";
 
 export async function GET(request: NextRequest) {
-  const token = await getToken({
-    req: request,
-    secret: process.env.NEXTAUTH_SECRET,
-  });
+  const token = await requestToken(request);
 
-  if (!token || token.role !== "admin") {
+  if (!token) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  }
+  if (token.role !== "admin") {
+    return NextResponse.json({ error: "No autorizado" }, { status: 403 });
   }
 
   try {
-    const totalIncome = await prisma.paymentRecord.aggregate({
+    const totalIncome = await prisma.paymentRecord.aggregate({ where: { payment_status: "COMPLETED" },
       _sum: { payment_amount: true },
     });
 
@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    const productSales = await prisma.purchase.aggregate({
+    const productSales = await prisma.purchase.aggregate({ where: { OR: [{ cashSaleId: null }, { cashSale: { is: { status: { not: "VOIDED" } } } }] },
       _sum: { purchase_total: true },
     });
 

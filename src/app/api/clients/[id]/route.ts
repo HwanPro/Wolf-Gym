@@ -1,38 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/infrastructure/prisma/prisma";
 import { z, ZodError } from "zod";
-import { getToken } from "next-auth/jwt";
+import { requireAdmin } from "@/server/auth/authorization";
 import { parsePhoneNumberFromString } from "libphonenumber-js";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
-
-/* ---------- Auth guard ---------- */
-async function ensureAdmin(req: NextRequest) {
-  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
-  return !!token && token.role === "admin";
-}
+import { datesInOrder, optionalClientDateSchema } from "@/server/validation/client-input";
 
 /* ---------- Zod schema ---------- */
 const clientUpdateSchema = z.object({
   firstName: z.string().min(1, "El nombre es obligatorio"),
   lastName: z.string().min(1, "El apellido es obligatorio"),
   plan: z.string().trim().min(1, "El plan es obligatorio").max(80),
-  startDate: z
-    .string()
-    .nullable()
-    .or(z.literal(""))
-    .transform((val) => (val ? new Date(val) : null)),
-  endDate: z
-    .string()
-    .nullable()
-    .or(z.literal(""))
-    .transform((val) => (val ? new Date(val) : null)),
+  startDate: optionalClientDateSchema,
+  endDate: optionalClientDateSchema,
   phone: z.string().optional().or(z.literal("")),
   emergencyPhone: z.string().optional().default(""),
   documentNumber: z.string().optional().default(""),
   address: z.string().trim().max(240).optional().default(""),
   social: z.string().trim().max(240).optional().default(""),
   image: z.string().trim().max(2048).nullable().optional(),
+}).refine(value => datesInOrder(value.startDate, value.endDate), {
+  message: "La fecha de fin debe ser igual o posterior al inicio",
+  path: ["endDate"],
 });
 
 function normalizeDocument(value?: string | null) {
@@ -64,9 +54,8 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    if (!(await ensureAdmin(req))) {
-      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-    }
+    const access = await requireAdmin(req);
+    if (!access.authorized) return access.response;
 
     const { id } = await params; // 👈 importante en Edge runtime
     if (!id) {
@@ -146,8 +135,8 @@ export async function PUT(
           profile_first_name: validatedData.firstName,
           profile_last_name: validatedData.lastName,
           profile_plan: validatedData.plan,
-          profile_start_date: validatedData.startDate,
-          profile_end_date: validatedData.endDate,
+          profile_start_date: validatedData.startDate ? new Date(validatedData.startDate) : null,
+          profile_end_date: validatedData.endDate ? new Date(validatedData.endDate) : null,
           profile_phone: phoneE164 ?? null,
           profile_emergency_phone:
             validatedData.emergencyPhone?.trim() || null,
@@ -157,6 +146,7 @@ export async function PUT(
         },
       }),
       prisma.user.update({
+        select: { id: true, username: true, firstName: true, lastName: true, phoneNumber: true, image: true, role: true },
         where: { id: clientProfile.user_id },
         data: {
           firstName: validatedData.firstName,
@@ -174,6 +164,14 @@ export async function PUT(
       { status: 200 }
     );
   } catch (error) {
+    const conflict = error as { code?: string; meta?: { target?: unknown } };
+    if (conflict?.code === "P2002") {
+      const target = String(conflict.meta?.target || "");
+      return NextResponse.json(
+        { error: target.includes("document") ? "El DNI ya está registrado" : "El usuario o teléfono ya está registrado" },
+        { status: 400 },
+      );
+    }
     console.error("Error al actualizar cliente:", error);
     if (error instanceof ZodError) {
       return NextResponse.json(
@@ -195,9 +193,8 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    if (!(await ensureAdmin(req))) {
-      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-    }
+    const access = await requireAdmin(req);
+    if (!access.authorized) return access.response;
 
     const { id } = await params; // 👈 importante en Edge runtime
     if (!id) {
@@ -219,11 +216,15 @@ export async function DELETE(
       );
     }
 
-    await prisma.$transaction(async (tx) => {
-      await tx.debtHistory.deleteMany({ where: { clientProfileId: id } });
-      await tx.dailyDebt.deleteMany({ where: { clientProfileId: id } });
-      await tx.paymentRecord.deleteMany({ where: { payer_user_id: profile.user_id } });
-      await tx.purchase.deleteMany({ where: { customerId: profile.user_id } });
+      await prisma.$transaction(async (tx) => {
+        const financialRecords = await Promise.all([
+          tx.debtHistory.count({ where: { clientProfileId: id } }),
+          tx.dailyDebt.count({ where: { clientProfileId: id } }),
+          tx.paymentRecord.count({ where: { payer_user_id: profile.user_id } }),
+          tx.purchase.count({ where: { customerId: profile.user_id } }),
+          tx.cashSale.count({ where: { OR: [{ customerId: profile.user_id }, { cashierId: profile.user_id }] } }),
+        ]);
+        if (financialRecords.some(Boolean)) throw new Error("FINANCIAL_HISTORY");
       await tx.userContact.deleteMany({ where: { contact_user_id: profile.user_id } });
       await tx.userMembershipPlan.deleteMany({ where: { userId: profile.user_id } });
       await tx.emailVerification.deleteMany({ where: { userId: profile.user_id } });
@@ -237,8 +238,9 @@ export async function DELETE(
       { message: "Cliente eliminado con éxito" },
       { status: 200 }
     );
-  } catch (error) {
-    console.error("Error al eliminar cliente:", error);
+    } catch (error) {
+      if (error instanceof Error && error.message === "FINANCIAL_HISTORY") return NextResponse.json({ error: "El cliente tiene historial financiero y debe conservarse." }, { status: 409 });
+      console.error("Error al eliminar cliente:", error);
     return NextResponse.json(
       { error: "Error interno del servidor" },
       { status: 500 }
@@ -251,9 +253,8 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    if (!(await ensureAdmin(req))) {
-      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-    }
+    const access = await requireAdmin(req);
+    if (!access.authorized) return access.response;
 
     const { id } = await params;
     const body = await req.json().catch(() => ({}));
@@ -299,7 +300,7 @@ export async function POST(
     }
 
     const password = `Wolf-${crypto.randomBytes(4).toString("hex")}`;
-    const hashed = await bcrypt.hash(password, 10);
+    const hashed = await bcrypt.hash(password, 12);
     await prisma.user.update({
       where: { id: profile.user.id },
       data: { password: hashed },

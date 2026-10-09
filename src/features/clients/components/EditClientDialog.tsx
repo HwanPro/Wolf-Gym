@@ -61,10 +61,27 @@ export default function EditClientDialog({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    setFormData(client);
-    setImagePreview(client.image || null);
-    setImageFile(null);
-  }, [client]);
+    if (!isOpen) {
+      setFormData(client);
+      setImagePreview(client.image || null);
+      setImageFile(null);
+    }
+  }, [client, isOpen]);
+
+  const handleOpenChange = (open: boolean) => {
+    if (!open && uploading) return;
+    if (
+      !open &&
+      (imageFile !== null || JSON.stringify(formData) !== JSON.stringify(client)) &&
+      !window.confirm("Tienes cambios sin guardar. ¿Quieres descartarlos?")
+    ) return;
+    if (open) {
+      setFormData(client);
+      setImagePreview(client.image || null);
+      setImageFile(null);
+    }
+    setIsOpen(open);
+  };
 
   const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
     setFormData((prev) => ({
@@ -174,7 +191,7 @@ export default function EditClientDialog({
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+    <Dialog open={isOpen} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button
           aria-label={compactTrigger ? "Editar cliente" : undefined}
@@ -327,6 +344,8 @@ export default function EditClientDialog({
 
           <section className={`${sectionClass} mt-3`}>
             <MembershipSelection
+              currentStartDate={client.membershipStart}
+              currentEndDate={client.membershipEnd}
               onPlanSelect={(selectedPlan, startDate, endDate) => {
                 setFormData((prev) => ({
                   ...prev,
@@ -363,7 +382,7 @@ export default function EditClientDialog({
 
           <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
             <Button
-              onClick={() => setIsOpen(false)}
+              onClick={() => handleOpenChange(false)}
               variant="outline"
               className="!border-white/15 !bg-zinc-900 !text-zinc-100 hover:!bg-zinc-800"
             >

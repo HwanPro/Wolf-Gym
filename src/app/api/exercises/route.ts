@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { authOptions } from "@/lib/auth-options";
 import { PrismaClient } from "@prisma/client";
 import { z } from "zod";
 
@@ -50,44 +50,47 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const params = searchParamsSchema.parse(Object.fromEntries(searchParams));
-    
-    const page = parseInt(params.page || "1");
-    const limit = parseInt(params.limit || "20");
+
+    const page = Number(params.page ?? "1");
+    const limit = Number(params.limit ?? "20");
+    if (!Number.isSafeInteger(page) || page < 1 || page > 100000 || !Number.isInteger(limit) || limit < 1 || limit > 100) {
+      return NextResponse.json({ error: "Paginación inválida" }, { status: 400 });
+    }
     const skip = (page - 1) * limit;
 
     // Construir filtros
     const where: any = {};
-    
+
     if (params.query) {
       where.OR = [
         { name: { contains: params.query, mode: 'insensitive' } },
         { description: { contains: params.query, mode: 'insensitive' } }
       ];
     }
-    
+
     if (params.muscle) {
       where.OR = [
         { primaryMuscle: { contains: params.muscle, mode: 'insensitive' } },
         { secondaryMuscles: { has: params.muscle } }
       ];
     }
-    
+
     if (params.equipment) {
       where.equipment = { contains: params.equipment, mode: 'insensitive' };
     }
-    
+
     if (params.level) {
       where.level = params.level;
     }
-    
+
     if (params.category) {
       where.category = params.category;
     }
-    
+
     if (params.tag) {
       where.tags = { has: params.tag };
     }
-    
+
     if (params.published) {
       where.isPublished = params.published === 'true';
     }

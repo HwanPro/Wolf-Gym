@@ -1,6 +1,7 @@
 // src/app/api/commands/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/server/auth/authorization";
+import { validateSessionToken } from "@/server/auth/session-validity";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,6 +21,8 @@ function broadcast(room: string, payload: Record<string, unknown>) {
 }
 
 export async function GET(req: NextRequest) {
+  const authorization = await requireAdmin(req);
+  if (!authorization.authorized) return authorization.response;
   const { searchParams } = new URL(req.url);
   const requestedRoom = searchParams.get("room") || "default";
   const room = /^[a-zA-Z0-9_-]{1,64}$/.test(requestedRoom)
@@ -27,25 +30,46 @@ export async function GET(req: NextRequest) {
     : "default";
 
   let currentSender: Sender | null = null;
+  let cleanup = () => {};
   const stream = new ReadableStream({
     start(controller) {
-      const send: Sender = (chunk: string) => controller.enqueue(enc.encode(chunk));
+      const send: Sender = (chunk: string) =>
+        controller.enqueue(enc.encode(chunk));
       currentSender = send;
       if (!rooms.has(room)) rooms.set(room, new Set());
       rooms.get(room)!.add(send);
 
       // saludo inicial (útil para probar conexión)
       send(`event: ping\ndata: "connected"\n\n`);
+      const keepAlive = setInterval(() => send(":\n\n"), 15000);
+      cleanup = () => {
+        clearInterval(keepAlive);
+        const set = rooms.get(room);
+        if (set && currentSender) {
+          set.delete(currentSender);
+          if (!set.size) rooms.delete(room);
+        }
+        req.signal.removeEventListener("abort", cleanup);
+      };
+      req.signal.addEventListener("abort", cleanup);
     },
     cancel() {
-      const set = rooms.get(room);
-      if (!set || !currentSender) return;
-      set.delete(currentSender);
-      if (set.size === 0) rooms.delete(room);
+      cleanup();
     },
   });
 
-  return new Response(stream, {
+  const protectedStream = stream.pipeThrough(
+    new TransformStream({
+      async transform(chunk, controller) {
+        if (!(await validateSessionToken(authorization.token))) {
+          controller.terminate();
+          return;
+        }
+        controller.enqueue(chunk);
+      },
+    }),
+  );
+  return new Response(protectedStream, {
     status: 200,
     headers: {
       "Content-Type": "text/event-stream; charset=utf-8",
@@ -60,12 +84,19 @@ export async function POST(req: NextRequest) {
   if (!authorization.authorized) return authorization.response;
 
   const raw: unknown = await req.json().catch(() => null);
-  const body = raw && typeof raw === "object" ? raw as Record<string, unknown> : null;
+  const body =
+    raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
   if (!body || typeof body.action !== "string") {
-    return NextResponse.json({ ok: false, message: "action requerida" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, message: "action requerida" },
+      { status: 400 },
+    );
   }
   if (!["scan", "checkout", "stop"].includes(body.action)) {
-    return NextResponse.json({ ok: false, message: "action inválida" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, message: "action inválida" },
+      { status: 400 },
+    );
   }
   const requestedRoom =
     typeof body.room === "string" && body.room ? body.room : "default";

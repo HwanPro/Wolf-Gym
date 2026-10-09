@@ -1,20 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { authOptions } from "@/lib/auth-options";
 import { PrismaClient } from "@prisma/client";
 import { z } from "zod";
 
 const prisma = new PrismaClient();
 
 // Esquema de validación para crear rutina
-const createRoutineSchema = z.object({
-  programId: z.string().optional(),
-  name: z.string().min(1, "El nombre es requerido"),
-  description: z.string().optional(),
-  goal: z.enum(["strength", "hypertrophy", "endurance"]),
-  level: z.enum(["beginner", "intermediate", "advanced"]),
-  dayIndex: z.number().min(0).max(6).optional()
-});
+import { routineSchema as createRoutineSchema } from "@/server/validation/routine";
 
 // GET - Listar rutinas
 export async function GET(req: NextRequest) {
@@ -36,6 +29,7 @@ export async function GET(req: NextRequest) {
       where.isPublished = true;
     }
 
+    if (searchParams.get("query")) where.name = {contains: searchParams.get("query"), mode: "insensitive"};
     // Filtros opcionales
     if (searchParams.get("programId")) {
       where.programId = searchParams.get("programId");
@@ -57,8 +51,8 @@ export async function GET(req: NextRequest) {
           items: {
             include: {
               exercise: {
-                select: { 
-                  name: true, 
+                select: {
+                  name: true,
                   primaryMuscle: true,
                   media: {
                     where: { isCover: true },
@@ -122,9 +116,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const routine = await prisma.routineTemplate.create({
-      data
-    });
+    const {items, ...fields} = data;
+    if (items && await prisma.exercise.count({where: {id: {in: [...new Set(items.map(i => i.exerciseId))]}, isPublished: true}}) !== new Set(items.map(i => i.exerciseId)).size) return NextResponse.json({error: 'Ejercicio no publicado'}, {status: 400});
+    const routine = await prisma.routineTemplate.create({data: {...fields, ...(items ? {items: {create: items}} : {})}});
 
     return NextResponse.json({ id: routine.id });
 

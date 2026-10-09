@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import useSWR from "swr";
 import { 
   Dumbbell, 
@@ -49,6 +49,7 @@ interface WorkoutSet {
   weight: number;
   restSeconds?: number;
   completed: boolean;
+  isWarmup?: boolean;
 }
 
 interface WorkoutExercise {
@@ -85,6 +86,30 @@ export default function RoutinesTab({
   const [loading, setLoading] = useState(false);
   const [activeWorkout, setActiveWorkout] = useState<ActiveWorkout | null>(null);
   const [workoutExercises, setWorkoutExercises] = useState<WorkoutExercise[]>([]);
+  const [dirtyExercises, setDirtyExercises] = useState<Set<string>>(new Set());
+  const [restoring, setRestoring] = useState(true);
+  useEffect(() => {
+    let stopped = false;
+    async function restore() {
+      try {
+        const response = await fetch('/api/workouts?status=in-progress&limit=1', { credentials: 'include' });
+        if (!response.ok) return;
+        const data = await response.json();
+        const workout = Array.isArray(data) ? data[0] : data.items?.[0] ?? data.workouts?.[0];
+        if (!workout || stopped) return;
+        const exercisesResponse = await fetch(`/api/workouts/${workout.id}/exercises`);
+        if (!exercisesResponse.ok) return;
+        const body = await exercisesResponse.json();
+        const exercises = Array.isArray(body) ? body : body.exercises ?? body.items ?? [];
+        if (!stopped) {
+          setActiveWorkout({ id: workout.id, status: workout.status });
+          setWorkoutExercises(exercises.map((exercise: WorkoutExercise) => ({ ...exercise, sets: exercise.sets.map(set => ({ ...set, completed: true })) })));
+        }
+      } finally { if (!stopped) setRestoring(false); }
+    }
+    void restore();
+    return () => { stopped = true; };
+  }, []);
   // Técnica (pendiente de modal en siguiente paso)
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -199,6 +224,10 @@ export default function RoutinesTab({
 
   const finishWorkout = async () => {
     if (!activeWorkout) return;
+    if (dirtyExercises.size) {
+      toast.error('Guarda las series modificadas antes de finalizar.');
+      return;
+    }
     
     const result = await Swal.fire({
       title: '¿Finalizar entrenamiento?',
@@ -262,8 +291,13 @@ export default function RoutinesTab({
                     onBlur={async (e) => {
                       const name = e.target.value?.trim();
                       if (!name || !activeWorkout) return;
-                      await fetch(`/api/workouts/${activeWorkout.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
-                      toast.info('Nombre guardado', { position: 'bottom-right', autoClose: 1000, theme: 'dark' });
+                      try {
+                        const response = await fetch(`/api/workouts/${activeWorkout.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+                        if (!response.ok) throw new Error('No se pudo guardar el nombre');
+                        toast.info('Nombre guardado', { position: 'bottom-right', autoClose: 1000, theme: 'dark' });
+                      } catch {
+                        toast.error('No se pudo guardar el nombre. Conserva el texto y vuelve a intentarlo.');
+                      }
                     }}
                     className="wolf-control h-9 w-full sm:w-64"
                   />
@@ -291,7 +325,7 @@ export default function RoutinesTab({
               </div>
               <Button 
                 onClick={startWorkout}
-                disabled={loading}
+                disabled={loading || restoring}
                 size="lg"
                 className="wolf-button wolf-button-primary w-full sm:w-auto"
               >
@@ -319,7 +353,16 @@ export default function RoutinesTab({
                   key={workoutExercise.id} 
                   workoutExercise={workoutExercise}
                   exerciseNumber={index + 1}
+                  onSaveSets={async sets => {
+                    const response = await fetch(`/api/workouts/${activeWorkout.id}/exercises/${workoutExercise.id}/sets`, {
+                      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ sets: sets.map((set, i) => ({ setIndex: i + 1, weight: set.weight, reps: set.reps, isWarmup: Boolean(set.isWarmup) })) }),
+                    });
+                    if (!response.ok) throw new Error('No se guardaron las series. Revisa los valores y vuelve a intentar.');
+                    setDirtyExercises(current => { const next = new Set(current); next.delete(workoutExercise.id); return next; });
+                  }}
                   onUpdateSets={(sets: WorkoutSet[]) => {
+                    setDirtyExercises(current => new Set(current).add(workoutExercise.id));
                     // Actualizar sets en el estado local
                     setWorkoutExercises(prev => 
                       prev.map(we => 
@@ -521,10 +564,13 @@ interface WorkoutExerciseCardProps {
   workoutExercise: WorkoutExercise;
   exerciseNumber: number;
   onUpdateSets: (sets: WorkoutSet[]) => void;
+  onSaveSets: (sets: WorkoutSet[]) => Promise<void>;
 }
 
-function WorkoutExerciseCard({ workoutExercise, exerciseNumber, onUpdateSets }: WorkoutExerciseCardProps) {
+function WorkoutExerciseCard({ workoutExercise, exerciseNumber, onUpdateSets, onSaveSets }: WorkoutExerciseCardProps) {
   const [sets, setSets] = useState<WorkoutSet[]>(workoutExercise.sets || []);
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState('');
 
   const addSet = () => {
     const newSet: WorkoutSet = {
@@ -569,7 +615,7 @@ function WorkoutExerciseCard({ workoutExercise, exerciseNumber, onUpdateSets }: 
         </div>
         <Button
           size="sm"
-          onClick={addSet}
+          disabled={saving} onClick={addSet}
           className="wolf-button w-full sm:w-auto"
         >
           <Plus className="h-4 w-4 mr-1" />
@@ -591,7 +637,7 @@ function WorkoutExerciseCard({ workoutExercise, exerciseNumber, onUpdateSets }: 
             <span className="text-sm font-medium text-[var(--wolf-app-muted)]">{index + 1}</span>
             
             <Input
-              type="number"
+              disabled={saving} type="number"
               value={set.weight}
               onChange={(e) => updateSet(index, 'weight', parseFloat(e.target.value) || 0)}
               aria-label={`Peso de la serie ${index + 1}`}
@@ -603,17 +649,18 @@ function WorkoutExerciseCard({ workoutExercise, exerciseNumber, onUpdateSets }: 
             <Input
               type="number"
               value={set.reps}
-              onChange={(e) => updateSet(index, 'reps', parseInt(e.target.value) || 0)}
+              onChange={(e) => updateSet(index, 'reps', Number(e.target.value))}
               aria-label={`Repeticiones de la serie ${index + 1}`}
               className="wolf-control h-9 text-sm"
               min="1"
             />
             
+            <label className="col-span-3 flex items-center gap-2 text-xs"><input disabled={saving} type="checkbox" checked={Boolean(set.isWarmup)} onChange={e => updateSet(index, 'isWarmup', e.target.checked)} /> Calentamiento</label>
             <div className="col-span-3 flex justify-end gap-1 sm:col-span-1">
               <Button
                 size="sm"
                 variant={set.completed ? "default" : "outline"}
-                onClick={() => updateSet(index, 'completed', !set.completed)}
+                disabled={saving} onClick={() => updateSet(index, 'completed', !set.completed)}
                 className={`h-8 px-2 text-xs ${
                   set.completed 
                     ? 'bg-[var(--wolf-app-success)] text-[var(--wolf-app-bg)] hover:bg-[var(--wolf-app-success)]'
@@ -625,7 +672,7 @@ function WorkoutExerciseCard({ workoutExercise, exerciseNumber, onUpdateSets }: 
               <Button
                 size="sm"
                 variant="ghost"
-                onClick={() => removeSet(index)}
+                disabled={saving} aria-label={`Eliminar serie ${index + 1}`} onClick={() => removeSet(index)}
                 className="h-8 px-2 text-[var(--wolf-app-danger)] hover:bg-red-500/10 hover:text-[var(--wolf-app-danger)]"
               >
                 ×
@@ -649,6 +696,14 @@ function WorkoutExerciseCard({ workoutExercise, exerciseNumber, onUpdateSets }: 
           </div>
         )}
       </div>
+      <Button disabled={saving} onClick={async () => {
+        if (saving) return;
+        setSaving(true); setSaveMessage('');
+        try { await onSaveSets(sets); setSaveMessage('Series guardadas'); }
+        catch (error) { setSaveMessage(error instanceof Error ? error.message : 'No se guardaron las series'); }
+        finally { setSaving(false); }
+      }}>{saving ? 'Guardando series...' : 'Guardar series'}</Button>
+      {saveMessage && <p role="status">{saveMessage}</p>}
     </div>
   );
 }

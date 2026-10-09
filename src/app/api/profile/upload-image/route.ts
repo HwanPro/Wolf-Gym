@@ -1,9 +1,12 @@
+import { assertExternalWrites } from "@/server/security/external-writes";
+import { validateUploadFile, safeUploadBuffer } from "@/server/files/file-validation";
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { authOptions } from "@/lib/auth-options";
 import prisma from "@/infrastructure/prisma/prisma";
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { v4 as uuidv4 } from "uuid";
+import {discardNewUploadIfUnreferenced} from "@/server/files/upload-recovery";
 
 // Configuración del cliente S3
 const s3Client = new S3Client({
@@ -15,6 +18,8 @@ const s3Client = new S3Client({
 });
 
 export async function POST(request: NextRequest) {
+  let uploadedKey: string | undefined;
+  let persisted = false;
   try {
     // Verificar autenticación
     const session = await getServerSession(authOptions);
@@ -33,26 +38,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validar el tipo y tamaño del archivo
-    const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
-    const maxFileSize = 5 * 1024 * 1024; // 5 MB
-
-    if (!allowedTypes.includes(file.type)) {
-      return NextResponse.json(
-        { error: "Tipo de archivo no permitido. Solo se permiten JPG, PNG y WEBP" },
-        { status: 400 }
-      );
-    }
-
-    if (file.size > maxFileSize) {
-      return NextResponse.json(
-        { error: "El archivo es demasiado grande. Máximo 5MB" },
-        { status: 400 }
-      );
-    }
+    const validationError = validateUploadFile(file, {
+      allowedTypes: ["image/jpeg", "image/png", "image/webp"],
+      allowedExtensions: [".jpg", ".jpeg", ".png", ".webp"], maxBytes: 5 * 1024 * 1024,
+    });
+    if (validationError) return NextResponse.json({ error: validationError }, { status: 400 });
 
     // Convertir el archivo a buffer
-    const buffer = Buffer.from(await file.arrayBuffer());
+    const buffer = await safeUploadBuffer(file);
+    if (!buffer) return NextResponse.json({ error: "El contenido del archivo no es válido" }, { status: 400 });
 
     // Generar nombre único para el archivo
     const fileExtension = file.name.split(".").pop();
@@ -67,7 +61,13 @@ export async function POST(request: NextRequest) {
       ContentType: file.type,
     };
 
+    if (process.env.WOLF_DISABLE_EXTERNAL_WRITES === "1") {
+      return NextResponse.json({ error: "La carga de imágenes está deshabilitada en este entorno de prueba. Tu imagen actual se conserva." }, { status: 503 });
+    }
+    assertExternalWrites();
+
     await s3Client.send(new PutObjectCommand(uploadParams));
+    uploadedKey = fileKey;
 
     const imageUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${fileKey}`;
 
@@ -76,12 +76,13 @@ export async function POST(request: NextRequest) {
       where: { id: session.user.id },
       data: { image: imageUrl },
     });
+    persisted = true;
 
     return NextResponse.json(
-      { 
-        success: true, 
+      {
+        success: true,
         imageUrl,
-        message: "Imagen de perfil actualizada correctamente" 
+        message: "Imagen de perfil actualizada correctamente"
       },
       { status: 200 }
     );
@@ -91,5 +92,10 @@ export async function POST(request: NextRequest) {
       { error: "Error interno del servidor" },
       { status: 500 }
     );
+  } finally {
+    if (uploadedKey && !persisted) {
+      const key=uploadedKey,url=`https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
+      await discardNewUploadIfUnreferenced(async()=>Boolean(await prisma.user.findFirst({where:{image:url},select:{id:true}})),()=>s3Client.send(new DeleteObjectCommand({Bucket:process.env.AWS_BUCKET_NAME!,Key:key})));
+    }
   }
 }

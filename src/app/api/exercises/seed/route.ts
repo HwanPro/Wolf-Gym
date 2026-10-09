@@ -292,6 +292,9 @@ const exercisesData = [
 export async function POST(req: NextRequest) {
   const authorization = await requireAdmin(req);
   if (!authorization.authorized) return authorization.response;
+  if (process.env.NODE_ENV === "production") {
+    return NextResponse.json({ error: "No disponible" }, { status: 404 });
+  }
 
   try {
     console.log('🌱 Iniciando seed de ejercicios...');
@@ -331,10 +334,9 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     console.error('❌ Error en seed:', error);
     return NextResponse.json(
-      { 
+      {
         success: false,
-        error: "Error interno del servidor",
-        details: error instanceof Error ? error.message : "Unknown error"
+        error: "Error interno del servidor"
       },
       { status: 500 }
     );

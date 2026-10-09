@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button } from "@/ui/button";
 import { toast } from "react-toastify";
 import { DialogClose } from "@radix-ui/react-dialog";
@@ -29,24 +29,30 @@ function AddProductDialog({
   const [image, setImage] = useState<File | null>(null);
   const [isGymProduct, setIsGymProduct] = useState<boolean>(false);
   const [category, setCategory] = useState<string>("");
+  const [sku, setSku] = useState("");
+  const [trackStock, setTrackStock] = useState(true);
+  const saving = useRef(false);
+  const [busy, setBusy] = useState(false);
 
   const handleAddProduct = async () => {
-    if (!name || !description || !price || !stock || !image) {
+    if (saving.current) return;
+    if (!name || !description || !price || !stock) {
       toast.error("Todos los campos son obligatorios", {
         position: "top-center",
       });
       return;
     }
 
-    if (parseFloat(price) <= 0 || parseInt(stock) < 0) {
+    if (Number(price) < 0 || !Number.isFinite(Number(price)) || !Number.isInteger(Number(stock)) || Number(stock) < 0) {
       toast.error(
-        "El precio debe ser mayor a 0 y el stock no puede ser negativo",
+        "El precio no puede ser negativo y el stock debe ser un entero no negativo",
         { position: "top-center" },
       );
       return;
     }
 
     try {
+      saving.current = true; setBusy(true);
       const formData = new FormData();
       formData.append("item_name", name);
       formData.append("item_description", description);
@@ -55,7 +61,9 @@ function AddProductDialog({
       formData.append("item_stock", stock);
       formData.append("isGymProduct", isGymProduct.toString());
       formData.append("category", category);
-      formData.append("file", image);
+      formData.append("item_sku", sku);
+      formData.append("track_stock", String(trackStock));
+      if (image) formData.append("file", image);
 
       const response = await fetch("/api/products", {
         method: "POST",
@@ -89,6 +97,8 @@ function AddProductDialog({
     } catch (error) {
       console.error("Error en el proceso de subida:", error);
       toast.error("Error inesperado", { position: "top-center" });
+    } finally {
+      saving.current = false; setBusy(false);
     }
   };
 
@@ -101,6 +111,7 @@ function AddProductDialog({
     setImage(null);
     setIsGymProduct(false);
     setCategory("");
+    setSku(""); setTrackStock(true);
   };
 
   return (
@@ -181,7 +192,7 @@ function AddProductDialog({
 
           <div>
             <label className="mb-2 block text-sm font-medium text-zinc-300">
-              Imagen del producto *
+              Imagen del producto (opcional)
             </label>
             <input
               type="file"
@@ -210,8 +221,10 @@ function AddProductDialog({
             </label>
           </div>
 
+          <label className="block text-sm text-zinc-300">SKU / código<input value={sku} maxLength={80} onChange={event => setSku(event.target.value)} className="wolf-control px-3" /></label>
+          <label className="flex items-center gap-2 text-sm text-zinc-300"><input type="checkbox" checked={trackStock} onChange={event => setTrackStock(event.target.checked)} />Controlar stock (desmarcar para servicios)</label>
           {/* Campo de categoría */}
-          {isGymProduct && (
+          {(
             <div>
               <label className="mb-2 block text-sm font-medium text-zinc-300">
                 Categoría
@@ -228,6 +241,8 @@ function AddProductDialog({
                 <option value="suplementos">Suplementos</option>
                 <option value="snacks">Snacks</option>
                 <option value="otros">Otros</option>
+                <option value="servicios">Servicios</option>
+                <option value="general">General</option>
               </select>
             </div>
           )}
@@ -246,6 +261,7 @@ function AddProductDialog({
           <Button
             className="flex-1 bg-yellow-400 text-black py-3 text-sm rounded-lg hover:bg-yellow-500 font-medium shadow-md"
             onClick={handleAddProduct}
+            disabled={busy}
           >
             Guardar Producto
           </Button>

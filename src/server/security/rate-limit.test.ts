@@ -3,6 +3,14 @@ import { describe, expect, it } from "vitest";
 import { InMemoryRateLimitStore } from "./rate-limit";
 
 describe("rate limit store", () => {
+  it("bounds distinct keys without evicting active attempt counters", () => {
+    const store = new InMemoryRateLimitStore(2);
+    store.consume("a", 1, 1000, 0);
+    store.consume("b", 1, 1000, 0);
+    expect(store.consume("c", 1, 1000, 1).allowed).toBe(false);
+    expect(store.consume("a", 1, 1000, 2).allowed).toBe(false);
+    expect(store.consume("c", 1, 1000, 1001).allowed).toBe(true);
+  });
   it("allows requests up to the limit and reports a retry delay", () => {
     const store = new InMemoryRateLimitStore();
     const start = 1_000;

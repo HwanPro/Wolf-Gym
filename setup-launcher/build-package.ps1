@@ -14,7 +14,11 @@
 
 param(
     [string]$Version = "",
-    [switch]$CreateZip
+    [switch]$CreateZip,
+    [string]$WebBuildPath = "",
+    [string]$OutputDirectory = "",
+    [string]$LocalEnvPath = "",
+    [switch]$NoShortcut
 )
 
 $ErrorActionPreference = "Stop"
@@ -26,6 +30,39 @@ $WEB_DEST = Join-Path $DIST "webapp"
 $RUNTIME_DEST = Join-Path $DIST "runtime"
 $SETUP_SRC = Join-Path $ROOT "setup-launcher"
 $LAUNCHER_SRC = Join-Path $ROOT "launcher"
+
+if ($OutputDirectory) { $DIST = [IO.Path]::GetFullPath($OutputDirectory) }
+$resolvedRoot = [IO.Path]::GetFullPath($ROOT).TrimEnd('\')
+$DIST = [IO.Path]::GetFullPath($DIST).TrimEnd('\')
+if (-not $DIST.StartsWith($resolvedRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {
+    throw "El destino debe estar dentro del proyecto y no puede ser su raiz."
+}
+for ($candidate = $DIST; $candidate -ne $resolvedRoot; $candidate = Split-Path $candidate -Parent) {
+    if ((Test-Path -LiteralPath $candidate) -and ((Get-Item -LiteralPath $candidate).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        throw "El destino contiene una junction o enlace: $candidate"
+    }
+}
+if ((Test-Path -LiteralPath (Join-Path $DIST 'webapp')) -and
+    (Get-ChildItem -LiteralPath (Join-Path $DIST 'webapp') -Force -File | Where-Object Name -like '.env*')) {
+    throw "El destino contiene configuracion privada. Elija una carpeta nueva con -OutputDirectory."
+}
+$BIO_DEST = Join-Path $DIST 'biometric'
+$WEB_DEST = Join-Path $DIST 'webapp'
+$RUNTIME_DEST = Join-Path $DIST 'runtime'
+$webSource = $ROOT
+if ($WebBuildPath) {
+    $WebBuildPath = (Resolve-Path -LiteralPath $WebBuildPath -ErrorAction Stop).ProviderPath
+    $webSource = Split-Path $WebBuildPath -Parent
+    foreach ($required in @('BUILD_ID','required-server-files.json','routes-manifest.json')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $WebBuildPath $required))) { throw "Build incompleto: $required" }
+    }
+    foreach ($required in @('package-lock.json','next.config.ts')) {
+        if ((Get-FileHash -LiteralPath (Join-Path $webSource $required)).Hash -ne (Get-FileHash -LiteralPath (Join-Path $ROOT $required)).Hash) {
+            throw "El build reutilizado no corresponde a $required actual."
+        }
+    }
+}
+if ($LocalEnvPath) { $LocalEnvPath = (Resolve-Path -LiteralPath $LocalEnvPath -ErrorAction Stop).ProviderPath }
 
 if ([string]::IsNullOrWhiteSpace($Version)) {
     if (-not [string]::IsNullOrWhiteSpace($env:WOLFGYM_VERSION)) {
@@ -48,7 +85,7 @@ Write-Host ""
 # ── Limpiar ────────────────────────────────────────────────────────────────────
 if (Test-Path $DIST) {
     Write-Host "Limpiando build anterior..." -ForegroundColor Yellow
-    Remove-Item $DIST -Recurse -Force
+    Remove-Item -LiteralPath $DIST -Recurse -Force
 }
 New-Item $DIST     -ItemType Directory | Out-Null
 New-Item $BIO_DEST -ItemType Directory | Out-Null
@@ -91,6 +128,7 @@ if (Test-Path -LiteralPath $packagedProductionConfigPath) {
 
 # ── 3. Build Next.js ──────────────────────────────────────────────────────────
 Write-Host "Compilando app web (Next.js)..." -ForegroundColor Cyan
+if (-not $WebBuildPath) {
 $releaseBuildEnvironment = @{
     DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/wolfgym?schema=public"
     SHADOW_DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/wolfgym_shadow?schema=public"
@@ -156,16 +194,29 @@ try {
     }
 }
 
+} else {
+    Write-Host "  Reutilizando build verificado: $WebBuildPath (sin reinstalar dependencias de trabajo)" -ForegroundColor Green
+}
+
 # Copiar archivos necesarios para next start. El lockfile evita que npm resuelva
 # dependencias distintas dentro del paquete final y dispare conflictos ERESOLVE.
-$itemsToCopy = @(".next", "public", "package.json", "package-lock.json", "next.config.cjs", "prisma")
+$itemsToCopy = @("public", "package.json", "package-lock.json", "prisma")
 foreach ($item in $itemsToCopy) {
-    $src = Join-Path $ROOT $item
+    $src = Join-Path $webSource $item
     $dst = Join-Path $WEB_DEST $item
     if (Test-Path $src) {
         Copy-Item $src $dst -Recurse -Force
     }
 }
+
+$compiledWeb = if ($WebBuildPath) { $WebBuildPath } else { Join-Path $ROOT '.next' }
+$packagedBuild = Join-Path $WEB_DEST '.next'
+New-Item -ItemType Directory -Path $packagedBuild | Out-Null
+Get-ChildItem -LiteralPath $compiledWeb -Force | Where-Object Name -ne 'cache' |
+    ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $packagedBuild $_.Name) -Recurse -Force }
+# Conservar la configuracion real sin requerir TypeScript en las dependencias de produccion.
+& node (Join-Path $SETUP_SRC 'write-runtime-config.mjs') $webSource $WEB_DEST
+if ($LASTEXITCODE -ne 0) { throw 'No se pudo preparar next.config.mjs' }
 
 # Next guarda el baseUrl del tsconfig en el build. En Windows, next start valida
 # que webapp\src exista aunque el paquete no necesite el codigo fuente TS.
@@ -187,13 +238,13 @@ try {
 
 # npm se ejecuta con --ignore-scripts, asi que copiamos el cliente Prisma ya generado
 # durante el build raiz para que next start funcione sin postinstall.
-$prismaRuntimeSrc = Join-Path $ROOT "node_modules\.prisma"
+$prismaRuntimeSrc = Join-Path $webSource "node_modules\.prisma"
 $prismaRuntimeDst = Join-Path $WEB_DEST "node_modules\.prisma"
 if (Test-Path $prismaRuntimeSrc) {
     Copy-Item $prismaRuntimeSrc $prismaRuntimeDst -Recurse -Force
 }
 
-$prismaClientSrc = Join-Path $ROOT "node_modules\@prisma\client"
+$prismaClientSrc = Join-Path $webSource "node_modules\@prisma\client"
 $prismaClientDst = Join-Path $WEB_DEST "node_modules\@prisma\client"
 if (Test-Path $prismaClientSrc) {
     Copy-Item $prismaClientSrc $prismaClientDst -Recurse -Force
@@ -222,45 +273,14 @@ echo   WOLF GYM - Iniciando sistema...
 echo  ==========================================
 echo.
 
-REM Verificar runtime Node.js incluido
-if not exist "%~dp0runtime\node.exe" (
-    echo ERROR: El paquete no incluye runtime\node.exe.
-    echo Ejecute wolfgym download para reparar la instalacion.
+REM El launcher controla y cierra exclusivamente los servicios de esta instalacion.
+if not exist "%~dp0WolfGymLauncher.exe" (
+    echo ERROR: Falta WolfGymLauncher.exe. Repare la instalacion.
     pause
     exit /b 1
 )
-
-REM Iniciar servicio biometrico en background
-echo [1/2] Iniciando lector de huellas...
-start "" /min /D "%~dp0biometric" "%~dp0biometric\WolfGym.BiometricService.exe"
-
-REM Esperar 3 segundos
-timeout /t 3 /nobreak >nul
-
-REM Iniciar app web
-echo [2/2] Iniciando aplicacion web...
-set BIOMETRIC_CAPTURE_BASE=http://127.0.0.1:8001
-set BIOMETRIC_STORE_BASE=http://127.0.0.1:8001
-set NEXT_PUBLIC_BIOMETRIC_BASE=http://127.0.0.1:8001
-set NEXT_PUBLIC_KIOSK=1
-set NEXTAUTH_URL=http://127.0.0.1:3000
-start "" /min /D "%~dp0webapp" "%~dp0runtime\node.exe" "%~dp0webapp\node_modules\next\dist\bin\next" start -p 3000
-
-REM Esperar que levante
-timeout /t 5 /nobreak >nul
-
-REM Abrir navegador
-echo Abriendo navegador...
-start "" http://localhost:3000
-
-echo.
-echo  Sistema iniciado. Cierre esta ventana para detener todo.
-echo.
-pause
-
-REM Al cerrar, detener procesos
-taskkill /im "WolfGym.BiometricService.exe" /f >nul 2>&1
-taskkill /im "node.exe" /f >nul 2>&1
+start "" /wait "%~dp0WolfGymLauncher.exe" %*
+exit /b %errorlevel%
 '@
 
 Set-Content (Join-Path $DIST "WolfGym.bat") $batContent -Encoding UTF8
@@ -286,7 +306,7 @@ if (Test-Path $launcherProject) {
     Copy-Item -LiteralPath (Join-Path $LAUNCHER_SRC "Assets\WolfGymLauncher.ico") -Destination (Join-Path $DIST "WolfGym.ico") -Force
     Write-Host "  Icono WolfGym.ico incluido" -ForegroundColor Green
 } else {
-    Write-Host "  ADVERTENCIA: no se encontro launcher\WolfGymLauncher.csproj; se deja solo WolfGym.bat" -ForegroundColor Yellow
+    throw "No se encontro launcher\WolfGymLauncher.csproj."
 }
 
 # ── 5. Buscar DLLs de ZKTeco y copiarlas al paquete ──────────────────────────
@@ -386,12 +406,12 @@ $readme = @(
     "     No requiere Git instalado ni acceso al repositorio por consola.",
     "     Si no puede descargar o instalar la actualizacion, continua con la version anterior.",
     "",
-    "RESPALDO:",
-    "  Si el launcher no abre, use WolfGym.bat y revise la carpeta logs.",
+    "DIAGNOSTICO:",
+    "  WolfGym.bat abre el mismo launcher. Si no inicia, revise la carpeta logs.",
     "",
-    "ACCESO DESDE OTRA PC EN LA RED:",
-    "  Abrir en el navegador: http://IP_DE_ESTA_PC:3000",
-    "  La IP aparece al ejecutar: ipconfig en CMD",
+    "PERFILES DESDE OTROS DISPOSITIVOS:",
+    "  Abrir https://wolf-gym.com desde iPhone, laptop u otro dispositivo.",
+    "  El panel local y el huellero solo escuchan en esta PC.",
     "",
     "PRIMERA VEZ / HUELLAS:",
     "  - Registrar huellas: Perfil del cliente -> Registrar huella",
@@ -434,19 +454,19 @@ if ($CreateZip) {
 
 # Configuracion privada para ejecutar la carpeta local recien compilada. Se copia
 # despues de crear el ZIP para que credenciales y secretos nunca se distribuyan.
-$sourceEnv = Join-Path $ROOT ".env"
+$sourceEnv = $LocalEnvPath
 $packagedEnv = Join-Path $WEB_DEST ".env"
-if (Test-Path -LiteralPath $sourceEnv -PathType Leaf) {
+if ($sourceEnv -and (Test-Path -LiteralPath $sourceEnv -PathType Leaf)) {
     Copy-Item -LiteralPath $sourceEnv -Destination $packagedEnv -Force
     Write-Host "Configuracion privada .env copiada a webapp para uso local." -ForegroundColor Green
 } else {
-    Write-Warning "No se encontro .env en la raiz. El paquete necesita NEXTAUTH_SECRET y DATABASE_URL para iniciar sesion y guardar huellas."
+    Write-Warning "Paquete sin configuracion privada. Configure webapp\.env o use -LocalEnvPath para una copia local explicita."
 }
 
 # El build local deja un acceso directo en el Escritorio. Los builds de release
 # no deben crear accesos directos en el perfil de la maquina de CI.
 $launcherExe = Join-Path $DIST "WolfGymLauncher.exe"
-if (-not $CreateZip -and (Test-Path -LiteralPath $launcherExe -PathType Leaf)) {
+if (-not $CreateZip -and -not $NoShortcut -and (Test-Path -LiteralPath $launcherExe -PathType Leaf)) {
     try {
         $desktopPath = [Environment]::GetFolderPath([Environment+SpecialFolder]::DesktopDirectory)
         if (-not [string]::IsNullOrWhiteSpace($desktopPath)) {
@@ -487,5 +507,9 @@ Write-Host ""
 if ($CreateZip) {
     Write-Host ("Para distribuir: use el ZIP generado en dist\WolfGym-{0}.zip; no incluye el .env local." -f (($Version -replace '[^A-Za-z0-9._-]', '-'))) -ForegroundColor Cyan
 } else {
-    Write-Host "La carpeta dist incluye .env privado para pruebas locales. Para distribuir, vuelva a compilar con -CreateZip; no comparta la carpeta directamente." -ForegroundColor Cyan
+    if ($LocalEnvPath) {
+        Write-Host "La carpeta incluye .env privado para uso local. No la comparta directamente; el ZIP se genera antes de copiar esa configuracion." -ForegroundColor Cyan
+    } else {
+        Write-Host "Carpeta sin .env privado. Configure el entorno del equipo antes de iniciar." -ForegroundColor Cyan
+    }
 }

@@ -2,7 +2,7 @@
 import { NextResponse } from "next/server";
 import prisma from "@/infrastructure/prisma/prisma";
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { authOptions } from "@/lib/auth-options";
 import bcrypt from "bcryptjs";
 
 export async function POST(request: Request) {
@@ -26,7 +26,7 @@ export async function POST(request: Request) {
       );
     }
 
-    if (newPassword.length < 8) {
+    if (newPassword.length < 8 || Buffer.byteLength(newPassword, "utf8") > 72) {
       return NextResponse.json(
         { message: "La nueva contraseña debe tener al menos 8 caracteres" },
         { status: 400 }
@@ -68,7 +68,7 @@ export async function POST(request: Request) {
     }
 
     // Actualizar contraseña
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
     await prisma.$transaction([
       prisma.user.update({
         where: { id: session.user.id },

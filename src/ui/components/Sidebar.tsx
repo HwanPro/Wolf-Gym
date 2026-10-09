@@ -19,6 +19,7 @@ const navSections = [
     items: [
       { href: "/admin/products", icon: "🛒", label: "Productos" },
       { href: "/admin/sales", icon: "💳", label: "Ventas" },
+      { href: "/admin/payments", icon: "💳", label: "Pagos online" },
     ],
   },
   {

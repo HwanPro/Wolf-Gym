@@ -72,18 +72,18 @@ export default function ForgotPasswordPage() {
       compact
       eyebrow="Seguridad"
       title="Recuperar clave"
-      description="Ingresa tu usuario o correo registrado. Si existe un correo asociado, enviaremos un enlace de recuperación."
+      description="Ingresa tu usuario o correo. La recuperación requiere un correo verificado."
       backLabel="Volver al login"
       onBack={() => router.push("/auth/login")}
     >
       <form onSubmit={handleSubmit} className="space-y-5">
         {message && (
-          <p className="border border-[#2EBD75]/30 bg-[#2EBD75]/10 px-3 py-2 text-sm font-semibold text-[#146C43]">
+          <p role="status" className="border border-[#2EBD75]/30 bg-[#2EBD75]/10 px-3 py-2 text-sm font-semibold text-[#146C43]">
             {message}
           </p>
         )}
         {error && (
-          <p className="border border-[#E5484D]/30 bg-[#E5484D]/10 px-3 py-2 text-sm font-semibold text-[#B42318]">
+          <p role="alert" className="border border-[#E5484D]/30 bg-[#E5484D]/10 px-3 py-2 text-sm font-semibold text-[#B42318]">
             {error}
           </p>
         )}

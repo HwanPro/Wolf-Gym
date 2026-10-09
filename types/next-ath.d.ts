@@ -5,6 +5,7 @@ import type { JWT as JWTType } from "next-auth/jwt";
 declare module "next-auth" {
   interface User extends DefaultUser {
     id: string;
+    credentialVersion?: string;
     role?: string;
     phoneNumber?: string;
     firstName?: string;

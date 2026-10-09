@@ -1,3 +1,4 @@
+import { assertExternalWrites } from "@/server/security/external-writes";
 import { NextRequest, NextResponse } from "next/server";
 import {
   S3Client,
@@ -26,6 +27,8 @@ export async function GET(request: NextRequest) {
     const command = new GetBucketPolicyCommand({
       Bucket: process.env.AWS_BUCKET_NAME!,
     });
+
+    assertExternalWrites();
 
     const response = await s3Client.send(command);
     const policy = JSON.parse(response.Policy || "{}");
@@ -79,6 +82,8 @@ export async function POST(request: NextRequest) {
         Policy: JSON.stringify(publicPolicy),
       });
 
+      assertExternalWrites();
+
       await s3Client.send(command);
 
       return NextResponse.json({
@@ -96,6 +101,8 @@ export async function POST(request: NextRequest) {
           Statement: [],
         }),
       });
+
+      assertExternalWrites();
 
       await s3Client.send(command);
 

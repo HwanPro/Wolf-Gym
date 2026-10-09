@@ -1,21 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/infrastructure/prisma/prisma";
-import { getToken } from "next-auth/jwt";
+import { requestToken } from "@/server/auth/authorization";
+import { getLimaDayRange, limaDateParts } from "@/domain/attendance/attendance-policy";
 
 export async function GET(request: NextRequest) {
-  const token = await getToken({
-    req: request,
-    secret: process.env.NEXTAUTH_SECRET,
-  });
+  const token = await requestToken(request);
 
-  if (!token || token.role !== "admin") {
+  if (!token) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  }
+  if (token.role !== "admin") {
+    return NextResponse.json({ error: "No autorizado" }, { status: 403 });
   }
 
   try {
+    const day = getLimaDayRange();
+    const local = limaDateParts();
     // Tolerar fallos parciales para no tumbar todo el dashboard.
     const results = await Promise.allSettled([
-      prisma.paymentRecord.aggregate({
+      prisma.paymentRecord.aggregate({ where: { payment_status: "COMPLETED" },
         _sum: { payment_amount: true },
       }),
       prisma.user.count({
@@ -26,7 +29,7 @@ export async function GET(request: NextRequest) {
           },
         },
       }),
-      prisma.purchase.aggregate({
+      prisma.purchase.aggregate({ where: { OR: [{ cashSaleId: null }, { cashSale: { is: { status: { not: "VOIDED" } } } }] },
         _sum: { purchase_total: true },
       }),
       prisma.attendance.count({
@@ -39,15 +42,15 @@ export async function GET(request: NextRequest) {
       prisma.attendance.count({
         where: {
           checkInTime: {
-            gte: new Date(new Date().setHours(0, 0, 0, 0)),
-            lt: new Date(new Date().setHours(23, 59, 59, 999)),
+            gte: day.start,
+            lte: day.end,
           },
         },
       }),
       prisma.clientProfile.count({
         where: {
           profile_end_date: {
-            gte: new Date(),
+            gte: new Date(Date.UTC(local.year, local.month - 1, local.day)),
           },
         },
       }),
@@ -60,6 +63,9 @@ export async function GET(request: NextRequest) {
       }),
     ]);
 
+    if (results.some(result => result.status === "rejected")) {
+      return NextResponse.json({ error: "No se pudieron cargar las métricas. Vuelve a intentar." }, { status: 503 });
+    }
     const takeValue = <T,>(index: number, fallback: T): T => {
       const result = results[index];
       if (result.status === "fulfilled") return result.value as T;

@@ -1,7 +1,6 @@
 # Node/Next
 node_modules/
-.next/
-.next-e2e/
+.next*/
 out/
 dist/
 .turbo/
@@ -39,6 +38,7 @@ public/uploads/*
 
 # Local agent/tooling artifacts
 .tmp/
+.local/
 .claude/
 .playwright-mcp/
 check-in-ui.png
@@ -63,4 +63,12 @@ PRODUCTS_UNIFICATION_SUMMARY.md
 
 # Python Services (separate repository)
 biometric-service/
+# Include the new configuration source required by the tracked service files.
+!biometric-service/
+biometric-service/*
+!biometric-service/Data/
+biometric-service/Data/*
+!biometric-service/Data/LocalDatabaseConfiguration.cs
+/.next-build-local/
+outputs/
 

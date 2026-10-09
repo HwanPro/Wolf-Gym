@@ -2,7 +2,7 @@
 "use client";
 
 import ConfirmDialog from "@/ui/components/ConfirmDialog";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import useSWR from "swr";
 import { Button } from "@/ui/button";
@@ -136,7 +136,7 @@ const W = {
   line: "rgba(255,255,255,0.10)",
   lineStrong: "rgba(255,255,255,0.18)",
   muted: "rgba(255,255,255,0.60)",
-  faint: "rgba(255,255,255,0.40)",
+  faint: "rgba(255,255,255,0.65)",
   font: "'Inter', system-ui, sans-serif",
   display: "'Bebas Neue', 'Arial Narrow', sans-serif",
 };
@@ -285,6 +285,12 @@ export default function ClientsPage() {
     operation?: "registro" | "verificación";
     sample?: number;
   }>({ open: false, phase: "ready", operation: "registro", sample: 1 });
+  const fingerprintRequest = useRef<AbortController | null>(null);
+  useEffect(() => () => fingerprintRequest.current?.abort(), []);
+  const cancelFingerprint = () => {
+    fingerprintRequest.current?.abort();
+    setFingerprintCapture({ open: false, phase: "ready" });
+  };
 
   const clients = clientsData;
   const totalClients = clients.length;
@@ -351,7 +357,7 @@ export default function ClientsPage() {
         label: "Sin fecha",
         style: {
           background: "rgba(255,255,255,0.06)",
-          color: "rgba(255,255,255,0.4)",
+          color: "rgba(255,255,255,0.65)",
           border: "1px solid rgba(255,255,255,0.1)",
         },
       };
@@ -365,7 +371,7 @@ export default function ClientsPage() {
         label: `Venció hace ${days} ${days === 1 ? "día" : "días"}`,
         style: {
           background: "rgba(229,72,77,0.12)",
-          color: "#E5484D",
+          color: "#FF8A8E",
           border: "1px solid rgba(229,72,77,0.35)",
         },
       };
@@ -461,7 +467,9 @@ export default function ClientsPage() {
 
   useEffect(() => {
     if (!clients || clients.length === 0) return;
-    const q = searchQuery.trim().toLowerCase();
+    const normalizeSearch = (value: string) =>
+      value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    const q = normalizeSearch(searchQuery.trim());
     const byStatus =
       statusFilter === "all"
         ? [...clients]
@@ -470,12 +478,10 @@ export default function ClientsPage() {
           );
     const base = q
       ? byStatus.filter((c) =>
-          (
+          normalizeSearch(
             `${c.firstName || ""} ${c.lastName || ""} ${c.userName || ""} ${c.phone || ""}` +
             ` ${c.documentNumber || ""}`
-          )
-            .toLowerCase()
-            .includes(q),
+          ).includes(q),
         )
       : byStatus;
     base.sort((a, b) => {
@@ -568,13 +574,14 @@ export default function ClientsPage() {
     }
   };
 
-  const captureOnce = async (): Promise<{
+  const captureOnce = async (signal: AbortSignal): Promise<{
     template: string;
     image?: string;
   }> => {
     try {
       const response = await fetch("/api/biometric/capture", {
         method: "POST",
+        signal,
       });
       const data: BiometricResponse = await response
         .json()
@@ -605,10 +612,14 @@ export default function ClientsPage() {
       );
       return;
     }
+    if (fingerprintRequest.current) return;
+    const controller = new AbortController();
+    fingerprintRequest.current = controller;
     setBusy((b) => ({ ...b, [userId]: true }));
     try {
       const st = await fetch(`/api/biometric/status/${userId}`, {
         cache: "no-store",
+        signal: controller.signal,
       });
       const sj = await st.json().catch(() => ({ hasFingerprint: false }));
       if (sj?.hasFingerprint) {
@@ -637,6 +648,7 @@ export default function ClientsPage() {
           await new Promise((resolve) =>
             window.setTimeout(resolve, sample === 1 ? 1200 : 1800),
           );
+          controller.signal.throwIfAborted();
           setFingerprintCapture({
             open: true,
             phase: "capturing",
@@ -644,7 +656,8 @@ export default function ClientsPage() {
             operation: "registro",
             sample,
           });
-          const capture = await captureOnce();
+          const capture = await captureOnce(controller.signal);
+          controller.signal.throwIfAborted();
           templates.push(capture.template);
           image = capture.image;
         }
@@ -656,11 +669,14 @@ export default function ClientsPage() {
           sample: 3,
         });
       } catch (error) {
+        if (controller.signal.aborted) return;
         setFingerprintCapture({ open: false, phase: "ready" });
         const errorMessage =
           error instanceof Error
             ? error.message
             : "No se pudo capturar la huella";
+        // Let the reader dialog finish closing before SweetAlert hides the page.
+        await new Promise((resolve) => window.setTimeout(resolve, 250));
         await Swal.fire({
           ...swalBase,
           title: "Error al capturar huella",
@@ -673,12 +689,14 @@ export default function ClientsPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ templates }),
+        signal: controller.signal,
       });
       const jr: RegisterFingerprintResponse = await res
         .json()
         .catch(() => ({ ok: false }));
       if (!res.ok || !jr?.ok) {
         setFingerprintCapture({ open: false, phase: "ready" });
+        await new Promise((resolve) => window.setTimeout(resolve, 250));
         return Swal.fire({
           ...swalBase,
           title: "Error al registrar huella",
@@ -695,6 +713,7 @@ export default function ClientsPage() {
       toast.success(jr?.message || "Huella registrada exitosamente");
       return;
     } catch (error) {
+      if (controller.signal.aborted) return;
       const errorMessage =
         error instanceof Error
           ? error.message
@@ -707,6 +726,7 @@ export default function ClientsPage() {
       });
       return;
     } finally {
+      if (fingerprintRequest.current === controller) fingerprintRequest.current = null;
       setFingerprintCapture((current) =>
         current.phase === "success" ? current : { open: false, phase: "ready" },
       );
@@ -719,26 +739,38 @@ export default function ClientsPage() {
       toast.error("Este cliente no tiene userId válido.");
       return;
     }
+    if (fingerprintRequest.current) return;
+    const controller = new AbortController();
+    fingerprintRequest.current = controller;
     setBusy((b) => ({ ...b, [userId]: true }));
     try {
       setFingerprintCapture({ open: true, phase: "ready", operation: "verificación" });
       await new Promise((resolve) => window.setTimeout(resolve, 500));
+      controller.signal.throwIfAborted();
       setFingerprintCapture({ open: true, phase: "capturing", operation: "verificación" });
-      const { template, image } = await captureOnce();
+      const { template, image } = await captureOnce(controller.signal);
+      controller.signal.throwIfAborted();
       setFingerprintCapture({ open: true, phase: "saving", image, operation: "verificación" });
       const response = await fetch(`/api/biometric/verify/${userId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ template }),
+        signal: controller.signal,
       });
       const data = (await response.json()) as {
         ok: boolean;
         match?: boolean;
         message?: string;
       };
-      setFingerprintCapture({ open: true, phase: "success", image, operation: "verificación" });
-      await new Promise((resolve) => window.setTimeout(resolve, 900));
+      if (!response.ok || data.ok !== true) {
+        throw new Error(data.message || "No se pudo completar la verificación biométrica.");
+      }
+      if (data.match) {
+        setFingerprintCapture({ open: true, phase: "success", image, operation: "verificación" });
+        await new Promise((resolve) => window.setTimeout(resolve, 900));
+      }
       setFingerprintCapture({ open: false, phase: "ready", operation: "verificación" });
+      await new Promise((resolve) => window.setTimeout(resolve, 250));
       await Swal.fire({
         ...swalBase,
         title: data?.match ? "Huella verificada" : "La huella no coincide",
@@ -749,11 +781,12 @@ export default function ClientsPage() {
       });
       return data;
     } catch (error) {
+      if (controller.signal.aborted) return;
       setFingerprintCapture({ open: false, phase: "ready", operation: "verificación" });
       console.error("Error en verificación de huella:", error);
-      toast.error("Error al verificar la huella. Intente nuevamente.");
-      throw error;
+      toast.error(error instanceof Error ? error.message : "Error al verificar la huella. Intente nuevamente.");
     } finally {
+      if (fingerprintRequest.current === controller) fingerprintRequest.current = null;
       setBusy((b) => ({ ...b, [userId]: false }));
     }
   };
@@ -885,7 +918,7 @@ export default function ClientsPage() {
               style={{
                 marginTop: 4,
                 fontSize: 13,
-                color: "rgba(255,255,255,0.4)",
+                color: "rgba(255,255,255,0.65)",
               }}
             >
               Registro, planes, deudas y huellas de clientes activos.
@@ -978,7 +1011,7 @@ export default function ClientsPage() {
               <p
                 style={{
                   fontSize: 12,
-                  color: "rgba(255,255,255,0.35)",
+                  color: "rgba(255,255,255,0.65)",
                   margin: 0,
                 }}
               >
@@ -995,7 +1028,7 @@ export default function ClientsPage() {
                     transform: "translateY(-50%)",
                     width: 15,
                     height: 15,
-                    color: "rgba(255,255,255,0.35)",
+                    color: "rgba(255,255,255,0.65)",
                   }}
                 />
                 <input
@@ -1132,7 +1165,7 @@ export default function ClientsPage() {
             <p
               style={{
                 fontSize: 12,
-                color: "rgba(255,255,255,0.35)",
+                color: "rgba(255,255,255,0.65)",
                 margin: "4px 0 0",
               }}
             >
@@ -1173,7 +1206,7 @@ export default function ClientsPage() {
                         <p
                           style={{
                             fontSize: 12,
-                            color: "rgba(255,255,255,0.4)",
+                            color: "rgba(255,255,255,0.65)",
                             margin: "2px 0 0",
                           }}
                         >
@@ -1198,7 +1231,7 @@ export default function ClientsPage() {
                       <div>
                         <p
                           style={{
-                            color: "rgba(255,255,255,0.35)",
+                            color: "rgba(255,255,255,0.65)",
                             margin: "0 0 2px",
                           }}
                         >
@@ -1213,7 +1246,7 @@ export default function ClientsPage() {
                       <div>
                         <p
                           style={{
-                            color: "rgba(255,255,255,0.35)",
+                            color: "rgba(255,255,255,0.65)",
                             margin: "0 0 2px",
                           }}
                         >
@@ -1228,7 +1261,7 @@ export default function ClientsPage() {
                       <div>
                         <p
                           style={{
-                            color: "rgba(255,255,255,0.35)",
+                            color: "rgba(255,255,255,0.65)",
                             margin: "0 0 2px",
                           }}
                         >
@@ -1243,7 +1276,7 @@ export default function ClientsPage() {
                       <div>
                         <p
                           style={{
-                            color: "rgba(255,255,255,0.35)",
+                            color: "rgba(255,255,255,0.65)",
                             margin: "0 0 2px",
                           }}
                         >
@@ -1258,7 +1291,7 @@ export default function ClientsPage() {
                       <div>
                         <p
                           style={{
-                            color: "rgba(255,255,255,0.35)",
+                            color: "rgba(255,255,255,0.65)",
                             margin: "0 0 4px",
                           }}
                         >
@@ -1291,7 +1324,7 @@ export default function ClientsPage() {
                           fontWeight: 700,
                           letterSpacing: "0.1em",
                           textTransform: "uppercase",
-                          color: "rgba(255,255,255,0.3)",
+                          color: "rgba(255,255,255,0.65)",
                           margin: "0 0 8px",
                         }}
                       >
@@ -1382,7 +1415,7 @@ export default function ClientsPage() {
                 style={{
                   textAlign: "center",
                   fontSize: 13,
-                  color: "rgba(255,255,255,0.3)",
+                  color: "rgba(255,255,255,0.65)",
                   padding: "24px 0",
                 }}
               >
@@ -1719,7 +1752,7 @@ export default function ClientsPage() {
                         ...tdStyle,
                         textAlign: "center",
                         padding: 40,
-                        color: "rgba(255,255,255,0.3)",
+                        color: "rgba(255,255,255,0.65)",
                       }}
                     >
                       No hay clientes disponibles
@@ -1790,7 +1823,7 @@ export default function ClientsPage() {
                   <p style={{ margin: 0 }}>
                     <span
                       style={{
-                        color: "rgba(255,255,255,0.35)",
+                        color: "rgba(255,255,255,0.65)",
                         display: "block",
                         fontSize: 11,
                         marginBottom: 2,
@@ -1803,7 +1836,7 @@ export default function ClientsPage() {
                   <p style={{ margin: 0 }}>
                     <span
                       style={{
-                        color: "rgba(255,255,255,0.35)",
+                        color: "rgba(255,255,255,0.65)",
                         display: "block",
                         fontSize: 11,
                         marginBottom: 2,
@@ -1816,7 +1849,7 @@ export default function ClientsPage() {
                   <p style={{ margin: 0 }}>
                     <span
                       style={{
-                        color: "rgba(255,255,255,0.35)",
+                        color: "rgba(255,255,255,0.65)",
                         display: "block",
                         fontSize: 11,
                         marginBottom: 2,
@@ -1869,7 +1902,7 @@ export default function ClientsPage() {
             <p
               style={{
                 fontSize: 13,
-                color: "rgba(255,255,255,0.3)",
+                color: "rgba(255,255,255,0.65)",
                 textAlign: "center",
                 padding: "16px 0",
               }}
@@ -1886,6 +1919,7 @@ export default function ClientsPage() {
         image={fingerprintCapture.image}
         operation={fingerprintCapture.operation}
         sample={fingerprintCapture.sample}
+        onCancel={cancelFingerprint}
       />
 
       {isPageLoading && (
@@ -1967,7 +2001,7 @@ function ClientMetric({
           alignItems: "center",
           gap: 8,
           fontSize: 13,
-          color: tone === "yellow" ? "#FFC21A" : "rgba(255,255,255,0.4)",
+          color: tone === "yellow" ? "#FFC21A" : "rgba(255,255,255,0.65)",
           marginBottom: 10,
         }}
       >

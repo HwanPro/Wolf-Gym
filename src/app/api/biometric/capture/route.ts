@@ -1,3 +1,5 @@
+import type { NextRequest } from "next/server";
+import { requireAdmin } from "@/server/auth/authorization";
 // src/app/api/biometric/capture/route.ts
 import { NextResponse } from "next/server";
 
@@ -16,23 +18,29 @@ function captureMessage(message?: string) {
   return "No se pudo capturar la huella.";
 }
 
-async function call(path: string, body?: Record<string, unknown>) {
+async function call(path: string, signal: AbortSignal, body?: Record<string, unknown>) {
   return fetch(`${BASE}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: body ? JSON.stringify(body) : undefined,
     cache: "no-store",
+    // Service capture is bounded at 30s; leave time to return its timeout result.
+    signal: AbortSignal.any([signal, AbortSignal.timeout(35_000)]),
   });
 }
 
-export async function POST() {
+export async function POST(request: NextRequest) {
+  const authorization = await requireAdmin(request);
+  if (!authorization.authorized) return authorization.response;
+
   try {
     let lastMessage: string | undefined;
     for (let attempt = 0; attempt < 3; attempt++) {
       let opened = false;
       let openMessage: string | undefined;
       for (let openAttempt = 0; openAttempt < 2 && !opened; openAttempt++) {
-        const response = await call("/device/open");
+        request.signal.throwIfAborted();
+        const response = await call("/device/open", request.signal);
         const result = (await response.json().catch(() => ({}))) as {
           ok?: boolean;
           alreadyOpen?: boolean;
@@ -51,7 +59,8 @@ export async function POST() {
         break;
       }
 
-      const response = await call("/capture");
+      request.signal.throwIfAborted();
+      const response = await call("/capture", request.signal);
       const result = (await response.json().catch(() => ({}))) as {
       ok?: boolean;
       template?: string;
@@ -77,6 +86,7 @@ export async function POST() {
       { status: 400 },
     );
   } catch {
+    if (request.signal.aborted) return new NextResponse(null, { status: 499 });
     console.error("El servicio biométrico no respondió durante la captura.");
     return NextResponse.json(
       { ok: false, message: "El servicio de captura no respondió" },

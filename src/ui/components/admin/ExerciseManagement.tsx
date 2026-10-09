@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import ExerciseMediaDialog from "./ExerciseMediaDialog";
 import { 
   Plus, 
   Edit, 
@@ -195,12 +196,12 @@ export default function ExerciseManagement() {
       instructions: exercise.instructions || "",
       commonMistakes: exercise.commonMistakes || "",
       tips: exercise.tips || "",
-      primaryMuscle: exercise.primaryMuscle,
+      primaryMuscle: exercise.primaryMuscle.toLowerCase().replaceAll("_", "-"),
       secondaryMuscles: exercise.secondaryMuscles,
-      equipment: exercise.equipment,
-      level: exercise.level as any,
-      mechanics: exercise.mechanics as any,
-      category: exercise.category as any,
+      equipment: exercise.equipment.toLowerCase().replaceAll("_", "-"),
+      level: exercise.level.toLowerCase() as any,
+      mechanics: exercise.mechanics.toLowerCase() as any,
+      category: exercise.category.toLowerCase().replaceAll("_", "-") as any,
       defaultRepMin: exercise.defaultRepMin || 8,
       defaultRepMax: exercise.defaultRepMax || 12,
       defaultRestSec: exercise.defaultRestSec || 90,
@@ -295,12 +296,12 @@ export default function ExerciseManagement() {
             </div>
             <div>
               <Label className="text-white">Músculo</Label>
-              <Select value={filterMuscle} onValueChange={setFilterMuscle}>
+              <Select value={filterMuscle} onValueChange={value => setFilterMuscle(value === "all" ? "" : value)}>
                 <SelectTrigger className="bg-gray-700 text-white border-gray-600">
                   <SelectValue placeholder="Todos los músculos" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Todos los músculos</SelectItem>
+                  <SelectItem value="all">Todos los músculos</SelectItem>
                   {muscleOptions.map(muscle => (
                     <SelectItem key={muscle} value={muscle}>{muscle}</SelectItem>
                   ))}
@@ -309,12 +310,12 @@ export default function ExerciseManagement() {
             </div>
             <div>
               <Label className="text-white">Nivel</Label>
-              <Select value={filterLevel} onValueChange={setFilterLevel}>
+              <Select value={filterLevel} onValueChange={value => setFilterLevel(value === "all" ? "" : value)}>
                 <SelectTrigger className="bg-gray-700 text-white border-gray-600">
                   <SelectValue placeholder="Todos los niveles" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Todos los niveles</SelectItem>
+                  <SelectItem value="all">Todos los niveles</SelectItem>
                   <SelectItem value="beginner">Principiante</SelectItem>
                   <SelectItem value="intermediate">Intermedio</SelectItem>
                   <SelectItem value="advanced">Avanzado</SelectItem>
@@ -396,6 +397,7 @@ export default function ExerciseManagement() {
                       >
                         <Edit className="h-4 w-4" />
                       </Button>
+                      <ExerciseMediaDialog exerciseId={exercise.id} name={exercise.name} />
                       <Button
                         size="sm"
                         variant="ghost"

@@ -1,10 +1,10 @@
 import bcrypt from "bcryptjs";
-import { getToken } from "next-auth/jwt";
+import { requestToken } from "@/server/auth/authorization";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import prisma from "@/infrastructure/prisma/prisma";
-import { InMemoryRateLimitStore } from "@/server/security/rate-limit";
+import { PersistentRateLimitStore } from "@/server/security/persistent-rate-limit";
 import {
   createSensitiveAdminToken,
   getSensitiveAdminAccess,
@@ -13,7 +13,7 @@ import {
 } from "@/server/security/sensitive-admin-access";
 
 const bodySchema = z.object({ password: z.string().min(1).max(200) });
-const verificationRateLimit = new InMemoryRateLimitStore();
+const verificationRateLimit = new PersistentRateLimitStore("sensitive-admin");
 
 export async function GET(request: NextRequest) {
   const access = await getSensitiveAdminAccess(request);
@@ -23,15 +23,12 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const token = await getToken({
-    req: request,
-    secret: process.env.NEXTAUTH_SECRET,
-  });
+  const token = await requestToken(request);
   if (!token?.id || token.role !== "admin") {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
 
-  const limit = verificationRateLimit.consume(
+  const limit = await verificationRateLimit.consume(
     String(token.id),
     5,
     15 * 60 * 1000,
@@ -68,17 +65,17 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  verificationRateLimit.reset(String(token.id));
+  await verificationRateLimit.reset(String(token.id));
   const response = NextResponse.json({
     verified: true,
     expiresIn: SENSITIVE_ADMIN_TTL_SECONDS,
   });
   response.cookies.set(
     SENSITIVE_ADMIN_COOKIE,
-    createSensitiveAdminToken(String(token.id)),
+    createSensitiveAdminToken(String(token.id), Date.now(), String(token.credentialVersion)),
     {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      secure: process.env.NEXTAUTH_URL?.startsWith("https://") ?? false,
       sameSite: "strict",
       path: "/",
       maxAge: SENSITIVE_ADMIN_TTL_SECONDS,

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { authOptions } from "@/lib/auth-options";
 import { PrismaClient } from "@prisma/client";
 import { z } from "zod";
 
@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
       }
     });
 
-    return NextResponse.json({ 
+    return NextResponse.json({
       success: true,
       assignmentId: `${assignment.userId}-${assignment.programId}`
     });

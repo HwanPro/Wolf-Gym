@@ -1,0 +1,10 @@
+import { request } from "@playwright/test";
+import fs from "node:fs";
+const account = JSON.parse(fs.readFileSync(".local/test-accounts.json", "utf8")).accounts.find(row => row.username === "audit_client_a");
+const context = await request.newContext({ baseURL: "http://127.0.0.1:3100" });
+const csrf = await (await context.get("/api/auth/csrf")).json();
+await context.post("/api/auth/callback/credentials", { form: { csrfToken: csrf.csrfToken, username: account.username, password: account.password, json: "true", callbackUrl: "/" } });
+const session = await (await context.get("/api/auth/session")).json();
+const response = await context.get("/admin/profile", { maxRedirects: 0 });
+console.log(JSON.stringify({ role: session?.user?.role, status: response.status(), location: response.headers().location, cookieDomains: (await context.storageState()).cookies.map(row => row.domain) }));
+await context.dispose();

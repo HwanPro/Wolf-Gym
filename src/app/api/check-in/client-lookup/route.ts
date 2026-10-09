@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getToken } from "next-auth/jwt";
+import { requestToken } from "@/server/auth/authorization";
 import prisma from "@/infrastructure/prisma/prisma";
+import { getMembershipStatus } from "@/domain/attendance/attendance-policy";
 
 export const dynamic = "force-dynamic";
 
@@ -9,11 +10,7 @@ function normalizeIdentifier(value: string) {
 }
 
 function calcDaysLeft(endDate?: Date | null) {
-  if (!endDate) return null;
-  const today = new Date();
-  const floorToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const diff = endDate.getTime() - floorToday.getTime();
-  return Math.max(0, Math.ceil(diff / 86_400_000));
+  return getMembershipStatus(endDate).daysLeft;
 }
 
 async function resolveUserId(identifierRaw?: string | null, userId?: string | null) {
@@ -36,15 +33,17 @@ async function resolveUserId(identifierRaw?: string | null, userId?: string | nu
   if (documentNumber) orConditions.push({ documentNumber });
 
   if (orConditions.length) {
-    const profile = await prisma.clientProfile.findFirst({
+    const profiles = await prisma.clientProfile.findMany({
       where: { OR: orConditions },
       select: { user_id: true },
+      take: 2,
     });
-    if (profile?.user_id) return profile.user_id;
+    if (profiles.length > 1) throw new Error("ambiguous_identifier");
+    if (profiles[0]?.user_id) return profiles[0].user_id;
   }
 
   if (phoneLast9) {
-    const user = await prisma.user.findFirst({
+    const users = await prisma.user.findMany({
       where: {
         OR: [
           { phoneNumber: phoneLast9 },
@@ -53,21 +52,23 @@ async function resolveUserId(identifierRaw?: string | null, userId?: string | nu
         ],
       },
       select: { id: true },
+      take: 2,
     });
-    if (user?.id) return user.id;
+    if (users.length > 1) throw new Error("ambiguous_identifier");
+    if (users[0]?.id) return users[0].id;
   }
 
   return null;
 }
 
 export async function POST(request: NextRequest) {
-  const token = await getToken({
-    req: request,
-    secret: process.env.NEXTAUTH_SECRET,
-  });
+  const token = await requestToken(request);
 
-  if (!token || token.role !== "admin") {
+  if (!token) {
     return NextResponse.json({ message: "No autorizado" }, { status: 401 });
+  }
+  if (token.role !== "admin") {
+    return NextResponse.json({ message: "No autorizado" }, { status: 403 });
   }
 
   try {
@@ -132,6 +133,9 @@ export async function POST(request: NextRequest) {
       totalDebt: monthlyDebt + dailyDebt,
     });
   } catch (error) {
+    if (error instanceof Error && error.message === "ambiguous_identifier") {
+      return NextResponse.json({ok:false,reason:"ambiguous_identifier",message:"El identificador pertenece a varios clientes. Corrige los duplicados."},{status:409});
+    }
     console.error("client lookup error:", error);
     return NextResponse.json({ ok: false, message: "Error interno" }, { status: 500 });
   }

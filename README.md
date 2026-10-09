@@ -10,7 +10,7 @@ Aplicacion web de gestion para Wolf Gym (Next.js + Prisma + NextAuth) con panel 
 - Tailwind CSS
 
 ## Requisitos
-- Node.js 18+
+- Node.js compatible con el stack y herramientas instaladas (revisión realizada con Node.js 24.16)
 - npm
 - Base de datos PostgreSQL
 
@@ -109,7 +109,7 @@ de migraciones es una operación explícita mediante `npm run db:migrate:deploy`
 
 ## Reglas verificadas
 
-- Todos los cálculos diarios de asistencia y caja usan `America/Lima`.
+- Las políticas de asistencia y caja usan `America/Lima`; comparar también los endpoints heredados y límites mensuales según la guía de aceptación.
 - Horario: lunes a viernes 06:00-21:00, sábados 06:00-20:00 y domingos cerrado.
 - La fecha final de membresía permanece válida hasta terminar ese día en Lima.
 - Máximo de dos entradas diarias y antirrebote de 60 segundos.
@@ -118,6 +118,18 @@ de migraciones es una operación explícita mediante `npm run db:migrate:deploy`
 - Las cargas validan autenticación, MIME, extensión, tamaño y claves seguras de almacenamiento.
 
 Las reglas detalladas y sus criterios de respuesta están en `docs/business-rules.md`.
+
+## Revisión y pruebas antes de operar
+
+- [Guía manual: 200 casos, pasos y comportamiento esperado](docs/manual-acceptance-tests.md).
+- [Excel de aceptación con filtros, estados y resumen](outputs/01a0fedc-6cce-77e1-ade8-e0610d80bbd8/pruebas-manuales-wolf-gym.xlsx).
+- [Caja completa, entorno local, cuentas de prueba y ataques comprobados](docs/cash-register-and-local-security.md).
+- [Revisión de seguridad, correcciones y bloqueos pendientes](docs/security-review-2026-10-02.md).
+- [Inventario de rutas API y métodos revisados](docs/api-review-inventory.md).
+
+Los casos manuales están pendientes. No habilitar compras de membresías ni cobros online sin resolver los bloqueos de asignación/conciliación. Las limpiezas destructivas están deshabilitadas; los cobros y anulaciones de la nueva caja conservan trazabilidad.
+
+Las APIs ahora revocan JWT tras cambios de contraseña, 2FA, rol o borrado. El despliegue de estas correcciones exige que las sesiones anteriores vuelvan a iniciar sesión. Recepción y endpoints biométricos requieren administrador.
 
 ## Solucion rapida de fallas comunes
 - Pantalla en blanco o 500 en admin durante desarrollo: `npm run dev:clean`.

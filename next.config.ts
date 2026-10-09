@@ -4,6 +4,8 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   distDir: process.env.NEXT_DIST_DIR || ".next",
   allowedDevOrigins: ["127.0.0.1"],
+  // Preserve the loopback origin so redirects keep the local session cookie.
+  skipMiddlewareUrlNormalize: process.env.WOLF_LOCAL_ONLY === "1",
   eslint: {
     // ESLint Flat Config is executed explicitly through `npm run lint`.
     ignoreDuringBuilds: true,
@@ -13,6 +15,7 @@ const nextConfig: NextConfig = {
       {
         source: "/:path*",
         headers: [
+          { key: "Content-Security-Policy", value: "frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'" },
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "X-Frame-Options", value: "DENY" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
@@ -26,6 +29,15 @@ const nextConfig: NextConfig = {
           },
         ],
       },
+      // Culqi 3DS submits device collection and bank challenges to Cardinal.
+      // Keep other pages restricted to same-origin form submissions.
+      ...["/", "/products/public"].map(source => ({
+        source,
+        headers: [{
+          key: "Content-Security-Policy",
+          value: "frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self' https://*.cardinaltrusted.com https://*.cardinalcommerce.com https://3ds.culqi.com",
+        }],
+      })),
     ];
   },
   async redirects() {
