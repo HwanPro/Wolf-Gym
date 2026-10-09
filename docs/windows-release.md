@@ -44,6 +44,23 @@ El workflow release-wolfgym.yml construye y publica al subir un tag vX.Y.Z. Un p
 
 Para la primera instalación descargar y extraer el ZIP completo, conservar juntas webapp, biometric, runtime y WolfGymLauncher.exe, y configurar privadamente la copia de aceptación. Descargar solo el exe no instala sus dependencias. El paquete no incluye .env ni aplica migraciones. Para comprobar una segunda entrega, cerrar la aplicación, publicar un paquete con un número superior y volver a abrir el mismo launcher instalado. La configuración local debe conservarse. Si no hay conexión o la descarga/verificación falla, continúa la versión instalada.
 
+### Primera instalación en otra laptop
+
+La opción directa es descargar el ZIP de la última release estable, extraerlo completo y configurar `webapp/.env` de forma privada. Crear el acceso directo a `WolfGymLauncher.exe`. La laptop necesita WebView2 y el controlador del lector cuando se use el huellero; Node y .NET se incluyen en el paquete.
+
+Si se prefiere construir desde Git, la copia debe estar en `codex/windows-update-test`; un `git pull` en `main` no obtiene esta entrega. Con Node y el SDK .NET 8 instalados, ejecutar desde una copia aislada:
+
+```powershell
+git fetch origin
+git switch codex/windows-update-test
+git pull --ff-only
+powershell -NoProfile -ExecutionPolicy Bypass -File .\setup-launcher\build-package.ps1 -Version v0.2.3
+```
+
+El constructor instala las dependencias y genera `dist/WolfGym`. Configurar privadamente `dist/WolfGym/webapp/.env` antes del primer arranque. La activación contra producción requiere completar los pasos de esquema y configuración anteriores; construir el paquete no los realiza.
+
+Después de esa instalación inicial, abrir siempre el launcher o su acceso directo: consulta las releases estables y actualiza el paquete al arrancar. No requiere volver a ejecutar Git ni compilar por cada actualización. Los cambios publicados solo como commits no se instalan hasta que se publica su release Windows.
+
 La base funcional aprobada se publica completa antes de probar cambios pequeños: no separar correcciones de seguridad, sus llamadas y las migraciones que requieren. Cada siguiente release debe describir el cambio concreto y sus comprobaciones.
 
 ## Verificación funcional final

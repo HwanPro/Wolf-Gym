@@ -139,7 +139,7 @@ export default function PublicProductList() {
   };
 
   return (
-    <div className="bg-white min-h-screen">
+    <div className="bg-white min-h-screen text-black">
       {payment.config.mode === "test" && <p className="bg-yellow-100 p-2 text-center font-bold text-black">Modo de prueba · usa únicamente tarjetas de prueba</p>}
       {payment.message && <div role="status" className="border border-yellow-400 bg-yellow-50 p-3 text-black">
         {payment.message}
@@ -158,7 +158,8 @@ export default function PublicProductList() {
               placeholder="Buscar productos..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10 pr-4 py-2 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-yellow-400"
+              aria-label="Buscar productos"
+              className="w-full min-w-0 pl-10 pr-4 py-2 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-yellow-400"
             />
           </div>
           <button
@@ -215,7 +216,7 @@ export default function PublicProductList() {
               </p>
               {!prod.trackStock || prod.stock > 0 ? (
                 <button
-                  onClick={() => setSelectedProduct(prod)}
+                  onClick={() => { setQuantity(1); setSelectedProduct(prod); }}
                   className="mt-4 bg-yellow-400 text-black px-4 py-2 rounded-full hover:bg-yellow-500"
                 >
                   Seleccionar Opciones
@@ -231,6 +232,7 @@ export default function PublicProductList() {
               {selectedProduct?.id === prod.id && (
                 <div className="absolute inset-0 bg-white bg-opacity-90 flex flex-col justify-center items-center rounded-lg shadow-lg text-black p-4">
                   <button
+                    aria-label="Cerrar opciones"
                     onClick={() => setSelectedProduct(null)}
                     className="absolute top-2 right-2 text-black font-bold"
                   >
@@ -272,7 +274,7 @@ export default function PublicProductList() {
           onClick={() => setShowCart(false)}
         >
           <div
-            className="bg-white w-full sm:w-80 h-full shadow-lg p-4 relative"
+            className="bg-white text-black w-full sm:w-80 h-full overflow-y-auto overscroll-contain shadow-lg p-4 relative"
             onClick={(e) => e.stopPropagation()}
           >
             <button
@@ -293,7 +295,7 @@ export default function PublicProductList() {
                     key={item.id}
                     className="flex justify-between items-center mb-4 border-b pb-2"
                   >
-                    <div>
+                    <div className="min-w-0 break-words pr-2">
                       <p className="text-sm font-bold">{item.name}</p>
                       <p className="text-sm">
                         Cantidad: {item.quantity} x S/.{getDiscountedPrice(item).toFixed(2)}
@@ -304,6 +306,7 @@ export default function PublicProductList() {
                       </p>
                     </div>
                     <button
+                      aria-label={`Quitar ${item.name} del carrito`}
                       onClick={() => handleRemoveFromCart(item.id)}
                       className="text-red-600 font-bold"
                     >
