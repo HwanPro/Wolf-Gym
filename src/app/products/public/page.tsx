@@ -140,7 +140,6 @@ export default function PublicProductList() {
 
   return (
     <div className="bg-white min-h-screen text-black">
-      {payment.config.mode === "test" && <p className="bg-yellow-100 p-2 text-center font-bold text-black">Modo de prueba · usa únicamente tarjetas de prueba</p>}
       {payment.message && <div role="status" className="border border-yellow-400 bg-yellow-50 p-3 text-black">
         {payment.message}
         {payment.hasPendingAttempt && <button type="button" className="ml-3 underline" disabled={payment.processing} onClick={payment.checkStatus}>Consultar estado del pago</button>}

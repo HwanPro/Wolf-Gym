@@ -416,7 +416,6 @@ export default function WolfGymLanding() {
 
   return (
     <div className="min-h-dvh bg-black text-white">
-      {payment.config.mode === "test" && <p className="bg-yellow-100 p-2 text-center font-bold text-black">Modo de prueba · usa únicamente tarjetas de prueba</p>}
       {payment.message && <div role="status" className="border border-yellow-400 bg-black p-3 text-white">
         {payment.message}
         {payment.hasPendingAttempt && <button type="button" className="ml-3 text-yellow-300 underline" disabled={payment.processing} onClick={payment.checkStatus}>Consultar estado del pago</button>}
