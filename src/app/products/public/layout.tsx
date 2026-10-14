@@ -18,11 +18,13 @@ export const metadata: Metadata = {
     siteName: "Wolf Gym",
     locale: "es_PE",
     type: "website",
+    images: [{ url: "/brand/wolf-gym-logo.png", width: 512, height: 512, alt: "Logo de Wolf Gym" }],
   },
   twitter: {
     card: "summary_large_image",
     title,
     description,
+    images: ["/brand/wolf-gym-logo.png"],
   },
 };
 

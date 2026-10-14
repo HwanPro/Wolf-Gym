@@ -5,8 +5,7 @@ import Providers from "./providers";
 
 const siteUrl = "https://wolf-gym.com";
 const siteName = "Wolf Gym";
-const iconPath = "/icons/icon-512.png";
-const logoPath = iconPath;
+const logoPath = "/brand/wolf-gym-logo.png";
 const title = "Wolf Gym - Gimnasio en Ica | Entrena con equipos de calidad";
 const description =
   "Wolf Gym en Ica: gimnasio con equipos de calidad, planes accesibles, tienda deportiva y control de asistencia para clientes.";
@@ -67,13 +66,11 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title,
     description,
-    images: [iconPath],
+    images: [logoPath],
   },
   icons: {
     icon: [
-      { url: "/favicon.ico", sizes: "any", type: "image/x-icon" },
-      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
-      { url: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
+      { url: "/icons/favicon-96.png", sizes: "96x96", type: "image/png" },
     ],
     apple: [
       { url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
