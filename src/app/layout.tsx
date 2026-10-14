@@ -70,12 +70,13 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
+      { url: "/favicon.ico?v=20261014", sizes: "16x16 32x32 48x48 64x64 96x96 128x128 256x256", type: "image/x-icon" },
       { url: "/icons/favicon-96.png", sizes: "96x96", type: "image/png" },
     ],
     apple: [
       { url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
     ],
-    shortcut: ["/favicon.ico"],
+    shortcut: ["/favicon.ico?v=20261014"],
   },
   alternates: { canonical: siteUrl },
   formatDetection: {
