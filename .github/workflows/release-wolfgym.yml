@@ -32,10 +32,10 @@ jobs:
         with:
           dotnet-version: "8.0.x"
 
-      - name: Setup Node 20
+      - name: Setup patched Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version-file: ".node-version"
           cache: npm
 
       - name: Resolve version
